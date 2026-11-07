@@ -1,28 +1,52 @@
 import * as sdk from '@kirocrew/app-sdk'
-import type { Filters } from './types'
+import type { SavedView } from './types'
 
 export const API = '/api/apps/redmine-board'
 export const AGENT = 'redmine-board-assistant'
-const FILTERS_KEY = 'redmine-board:filters'
+const VIEW_KEY = 'redmine-board:view'
 
-export const DEFAULT_FILTERS: Filters = { q: '', project: '', status: 'open', assignee: '' }
-
-export function loadFilters(): Filters {
-  try {
-    const raw = localStorage.getItem(FILTERS_KEY)
-    if (raw) return { ...DEFAULT_FILTERS, ...JSON.parse(raw) }
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_FILTERS
+export interface ViewState {
+  expr: string
+  tab: 'board' | 'list'
+  sort: string
 }
 
-export function saveFilters(f: Filters) {
+export const DEFAULT_VIEW: ViewState = { expr: '', tab: 'board', sort: 'updated_on:desc' }
+
+export function loadViewState(): ViewState {
   try {
-    localStorage.setItem(FILTERS_KEY, JSON.stringify(f))
+    const raw = localStorage.getItem(VIEW_KEY)
+    if (raw) return { ...DEFAULT_VIEW, ...JSON.parse(raw) }
   } catch {
     /* ignore */
   }
+  return DEFAULT_VIEW
+}
+
+export function saveViewState(v: ViewState) {
+  try {
+    localStorage.setItem(VIEW_KEY, JSON.stringify(v))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Quote a value if it contains a space. */
+export function qv(v: string): string {
+  return /\s/.test(v) ? `"${v}"` : v
+}
+
+/** Append a token to an expression. */
+export function addToken(expr: string, token: string): string {
+  const e = expr.trim()
+  return e ? `${e} ${token}` : token
+}
+
+/** Remove the first exact-token occurrence from an expression. */
+export function removeToken(expr: string, raw: string): string {
+  const i = expr.indexOf(raw)
+  if (i < 0) return expr
+  return (expr.slice(0, i) + expr.slice(i + raw.length)).replace(/\s{2,}/g, ' ').trim()
 }
 
 export function qs(params: Record<string, string | number | undefined | null>): string {
@@ -60,7 +84,13 @@ export function errCode(e: unknown): string | null {
   return null
 }
 
-export function errMessage(e: unknown, fallback: string): string {
+/** Localized message for a backend error: code -> dictionary -> server text. */
+export function errMessage(e: unknown, tr: (code: string) => string | null, fallback: string): string {
+  const code = errCode(e)
+  if (code) {
+    const t = tr(code)
+    if (t) return t
+  }
   if (e && typeof e === 'object') {
     const anyE = e as { body?: string; message?: string }
     if (typeof anyE.body === 'string' && anyE.body) {
@@ -95,6 +125,17 @@ export const box = {
     borderRadius: 8,
   } as React.CSSProperties,
   muted: { color: 'var(--muted)' } as React.CSSProperties,
+  chip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '2px 8px',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-hover, var(--card))',
+    fontSize: 12,
+    cursor: 'pointer',
+  } as React.CSSProperties,
 }
 
 export function priorityTone(name: string | undefined): 'err' | 'warn' | 'muted' {
@@ -103,3 +144,11 @@ export function priorityTone(name: string | undefined): 'err' | 'warn' | 'muted'
   if (/(high|高)/.test(n)) return 'warn'
   return 'muted'
 }
+
+/** Token to add when a card field is clicked for filtering. */
+export function fieldToken(field: string, value: string | null | undefined, negated: boolean): string | null {
+  if (value == null || value === '') return null
+  return `${negated ? '-' : ''}${field}:${qv(value)}`
+}
+
+export type { SavedView }

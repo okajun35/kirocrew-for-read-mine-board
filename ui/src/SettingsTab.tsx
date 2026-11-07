@@ -25,7 +25,7 @@ export default function SettingsTab({ settings, meta }: { settings: SettingsView
   }, [settings?.baseUrl, settings?.kanbanStatusIds.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fail = (e: unknown) =>
-    setNotice({ ok: false, text: errCode(e) === 'owner_only' ? S.ownerOnly : errMessage(e, S.errorGeneric) })
+    setNotice({ ok: false, text: errCode(e) === 'owner_only' ? S.ownerOnly : errMessage(e, S.errorFor, S.errorGeneric) })
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post<SettingsView>(`${API}/settings`, body),

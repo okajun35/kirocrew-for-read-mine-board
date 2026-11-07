@@ -3,33 +3,42 @@ import { Badge, Btn, EmptyState, ErrorNotice } from '@kirocrew/app-sdk/ui'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useStrings } from './strings'
-import type { Filters, SearchResult } from './types'
+import type { ResultMeta, SearchResult } from './types'
 import { API, box, errMessage, fmtWhen, priorityTone, qs } from './util'
 
 const PAGE = 50
-type SortKey = 'id' | 'subject' | 'status' | 'priority' | 'assigned_to' | 'updated_on'
+const SORT_KEYS = ['id', 'subject', 'status', 'priority', 'assigned_to', 'updated_on'] as const
+type SortKey = (typeof SORT_KEYS)[number]
 
 export default function IssueTable({
-  filters,
+  expr,
+  sort,
+  onSort,
   selectedId,
   onSelect,
+  onVisible,
+  onResult,
 }: {
-  filters: Filters
+  expr: string
+  sort: string
+  onSort: (s: string) => void
   selectedId: number | null
   onSelect: (id: number) => void
+  onVisible: (ids: number[]) => void
+  onResult: (r: ResultMeta) => void
 }) {
   const api = useAppApi()
   const S = useStrings()
   const [offset, setOffset] = useState(0)
-  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'updated_on', dir: 'desc' })
+  const [key, dir] = (sort || 'updated_on:desc').split(':') as [SortKey, 'asc' | 'desc']
 
-  useEffect(() => setOffset(0), [filters, sort])
+  useEffect(() => setOffset(0), [expr, sort])
 
   const q = useQuery({
-    queryKey: ['issues', filters, sort, offset],
+    queryKey: ['issues', expr, sort, offset],
     queryFn: ({ signal }) =>
       api.get<SearchResult>(
-        `${API}/issues${qs({ ...filters, sort: `${sort.key}:${sort.dir}`, offset, limit: PAGE })}`,
+        `${API}/issues${qs({ query: expr, sort, offset, limit: PAGE })}`,
         { signal },
       ),
     placeholderData: keepPreviousData,
@@ -37,29 +46,30 @@ export default function IssueTable({
 
   const data = q.data
   useEffect(() => {
-    if (data?.direct && data.issues.length === 1) onSelect(data.direct)
-  }, [data?.direct]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (data) {
+      onResult(data)
+      onVisible(data.issues.map((i) => i.id))
+      if (data.direct && data.issues.length === 1) onSelect(data.direct)
+    }
+  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const header = (key: SortKey | null, label: string, width?: number) => (
+  const header = (k: SortKey | null, label: string, width?: number) => (
     <th
-      style={{ textAlign: 'left', padding: '6px 8px', width, cursor: key ? 'pointer' : undefined, whiteSpace: 'nowrap' }}
-      aria-sort={key && sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
-      onClick={() =>
-        key && setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))
-      }
+      style={{ textAlign: 'left', padding: '6px 8px', width, cursor: k ? 'pointer' : undefined, whiteSpace: 'nowrap' }}
+      aria-sort={k && key === k ? (dir === 'asc' ? 'ascending' : 'descending') : undefined}
+      onClick={() => k && onSort(`${k}:${key === k && dir === 'desc' ? 'asc' : 'desc'}`)}
     >
       {label}
-      {key && sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+      {k && key === k ? (dir === 'asc' ? ' ▲' : ' ▼') : ''}
     </th>
   )
 
-  if (q.error) return <ErrorNotice message={errMessage(q.error, S.errorGeneric)} />
+  if (q.error) return <ErrorNotice message={errMessage(q.error, S.errorFor, S.errorGeneric)} />
   if (!data) return <p className="text-sm text-muted">{S.loading}</p>
   if (!data.issues.length) return <EmptyState icon="🔍" title={S.noIssues} />
 
   return (
     <div style={{ ...box.card, overflow: 'auto' }}>
-      {data.note === 'partial' ? <p className="text-sm text-muted" style={{ padding: 8 }}>{S.partialNote}</p> : null}
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead style={{ borderBottom: '1px solid var(--border)' }}>
           <tr>

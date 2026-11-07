@@ -9,20 +9,51 @@ const ja = {
   tabList: '一覧',
   tabSettings: '設定',
 
-  searchPlaceholder: 'キーワード、または #123',
+  searchPlaceholder: '検索式: assignee:me status:open キーワード（/ でフォーカス）',
   searchButton: '検索',
-  filterProject: 'プロジェクト',
-  filterAllProjects: 'すべてのプロジェクト',
-  filterStatus: 'ステータス',
-  statusOpen: '未完了',
-  statusClosed: '完了',
-  statusAll: 'すべて',
-  filterAssignee: '担当者',
-  assigneeAny: '誰でも',
-  assigneeMe: '自分',
-  assigneeNone: '未割り当て',
   clearFilters: '条件をクリア',
-  partialNote: 'キーワード検索はこの Redmine では上位100件までが対象です',
+  partialNote: 'この Redmine ではキーワード検索の一部（否定条件など）が使えません',
+
+  savedViews: 'ビュー',
+  viewSave: '保存',
+  viewSaveOk: 'この名前で保存',
+  viewSaveHint: '今の条件と画面を保存します',
+  viewNamePlaceholder: 'ビューの名前',
+  viewDelete: '削除',
+
+  chipEditHint: 'クリックで直します',
+  chipRemove: '外す',
+  chipError: 'この条件は使えませんでした',
+  clickToFilter: 'クリックで絞り込み（Alt で否定）',
+  queryError: (e: { token: string; code: string; value?: string; suggestion?: string }) =>
+    e.code === 'unknown_field'
+      ? `「${e.token}」: 項目が分かりません${e.suggestion ? `（${e.suggestion}: ですか?）` : ''}`
+      : e.code === 'unknown_value'
+        ? `「${e.token}」: 「${e.value}」という値がありません`
+        : e.code === 'ambiguous_value'
+          ? `「${e.token}」: 「${e.value}」が複数あります`
+          : `「${e.token}」: 値が正しくありません`,
+  loadMore: (n: number) => `さらに ${n} 件`,
+  helpTitle: 'キーボード',
+  shortcuts: [
+    ['/', '検索へ'],
+    ['B', 'ボード ⇄ 一覧'],
+    ['J / K', '次 / 前のチケット'],
+    ['Enter', '詳細を開く'],
+    ['F', '条件を足す'],
+    ['S', '（保存ボタンから）ビューを保存'],
+    ['Esc', '閉じる'],
+    ['?', 'この一覧'],
+  ] as [string, string][],
+
+  commentTitle: 'コメント',
+  commentAs: (name: string) => `${name} として投稿`,
+  commentPreview: 'プレビュー',
+  commentEdit: '編集',
+  commentEmpty: '（内容がありません）',
+  commentPlaceholder: 'コメントを書く…',
+  commentPost: '投稿',
+  commentPosting: '投稿中…',
 
   colId: '#',
   colSubject: '件名',
@@ -98,6 +129,23 @@ const ja = {
   errorGeneric: 'エラーが発生しました',
   loading: '読み込み中…',
   reload: '再読み込み',
+  errorFor: (code: string): string | null =>
+    (({
+      unauthorized: 'ログインが必要です',
+      owner_only: 'この操作はオーナーだけができます',
+      app_token_forbidden: 'この操作はできません',
+      not_configured: 'Redmine が未設定です。「設定」で URL と API キーを登録してください',
+      not_found: '見つかりませんでした',
+      transition_not_allowed: 'このステータスへの変更はワークフローで許可されていません',
+      transition_not_applied: 'Redmine が変更を受け付けましたが、反映されませんでした（ワークフロー）',
+      redmine_unauthorized: 'API キーが拒否されました（401）。設定を確かめてください',
+      redmine_forbidden: 'Redmine が拒否しました（403）。REST API の有効化と権限を確かめてください',
+      redmine_unreachable: 'Redmine に接続できません。URL とネットワークを確かめてください',
+      redmine_redirect: 'Redmine がリダイレクトを返しました。URL を確かめてください',
+      redmine_invalid: 'Redmine が変更を拒否しました。値を確かめてください',
+      redmine_error: 'Redmine でエラーが起きました',
+      bad_request: '入力が正しくありません',
+    }) as Record<string, string>)[code] ?? null,
 }
 
 type Strings = typeof ja
@@ -110,20 +158,50 @@ const en: Strings = {
   tabList: 'List',
   tabSettings: 'Settings',
 
-  searchPlaceholder: 'Keyword, or #123',
+  searchPlaceholder: 'Query: assignee:me status:open keywords (press /)',
   searchButton: 'Search',
-  filterProject: 'Project',
-  filterAllProjects: 'All projects',
-  filterStatus: 'Status',
-  statusOpen: 'Open',
-  statusClosed: 'Closed',
-  statusAll: 'All',
-  filterAssignee: 'Assignee',
-  assigneeAny: 'Anyone',
-  assigneeMe: 'Me',
-  assigneeNone: 'Unassigned',
   clearFilters: 'Clear filters',
-  partialNote: 'On this Redmine, keyword search covers the top 100 matches only',
+  partialNote: 'On this Redmine, some keyword search features (e.g. negation) are unavailable',
+
+  savedViews: 'Views',
+  viewSave: 'Save',
+  viewSaveOk: 'Save with this name',
+  viewSaveHint: 'Save the current query and layout',
+  viewNamePlaceholder: 'View name',
+  viewDelete: 'Delete',
+
+  chipEditHint: 'Click to edit',
+  chipRemove: 'Remove',
+  chipError: 'This condition could not be applied',
+  clickToFilter: 'Click to filter (Alt to negate)',
+  queryError: (e: { token: string; code: string; value?: string; suggestion?: string }) =>
+    e.code === 'unknown_field'
+      ? `"${e.token}": unknown field${e.suggestion ? ` (did you mean ${e.suggestion}:?)` : ''}`
+      : e.code === 'unknown_value'
+        ? `"${e.token}": no such value "${e.value}"`
+        : e.code === 'ambiguous_value'
+          ? `"${e.token}": "${e.value}" is ambiguous`
+          : `"${e.token}": invalid value`,
+  loadMore: (n: number) => `${n} more`,
+  helpTitle: 'Keyboard',
+  shortcuts: [
+    ['/', 'Focus search'],
+    ['B', 'Toggle board / list'],
+    ['J / K', 'Next / previous issue'],
+    ['Enter', 'Open detail'],
+    ['F', 'Add a condition'],
+    ['Esc', 'Close'],
+    ['?', 'This list'],
+  ] as [string, string][],
+
+  commentTitle: 'Comment',
+  commentAs: (name: string) => `Posting as ${name}`,
+  commentPreview: 'Preview',
+  commentEdit: 'Edit',
+  commentEmpty: '(empty)',
+  commentPlaceholder: 'Write a comment…',
+  commentPost: 'Post',
+  commentPosting: 'Posting…',
 
   colId: '#',
   colSubject: 'Subject',
@@ -199,6 +277,23 @@ const en: Strings = {
   errorGeneric: 'Something went wrong',
   loading: 'Loading…',
   reload: 'Reload',
+  errorFor: (code: string): string | null =>
+    (({
+      unauthorized: 'Authentication required',
+      owner_only: 'Only the owner can do this',
+      app_token_forbidden: 'This operation is not allowed',
+      not_configured: 'Redmine is not configured. Set the URL and API key in Settings',
+      not_found: 'Not found',
+      transition_not_allowed: 'This status change is not allowed by the workflow',
+      transition_not_applied: 'Redmine accepted the request but did not apply the change (workflow)',
+      redmine_unauthorized: 'The API key was rejected (401). Check Settings',
+      redmine_forbidden: 'Redmine refused (403). Check that REST is enabled and your permissions',
+      redmine_unreachable: 'Cannot reach Redmine. Check the URL and network',
+      redmine_redirect: 'Redmine answered with a redirect. Check the URL',
+      redmine_invalid: 'Redmine rejected the change. Check the values',
+      redmine_error: 'Redmine returned an error',
+      bad_request: 'Invalid input',
+    }) as Record<string, string>)[code] ?? null,
 }
 
 type SdkLocale = { activeLocale?: () => string; useLanguageGeneration?: () => number }

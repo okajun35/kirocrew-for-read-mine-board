@@ -1,6 +1,7 @@
 import { useAppApi, useChatLauncher } from '@kirocrew/app-sdk'
 import { Badge, Btn, ErrorNotice, MarkdownRenderer } from '@kirocrew/app-sdk/ui'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import type { Strings } from './strings'
 import { useStrings } from './strings'
 import type { IssueDetail as Issue } from './types'
@@ -30,12 +31,87 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function Body({ text }: { text: string }) {
-  // Redmine returns raw text (CRLF). The host renderer sanitizes; no raw HTML.
-  return <MarkdownRenderer content={text.replace(/\r\n/g, '\n')} />
+function Body({ text, onOpenIssue }: { text: string; onOpenIssue: (id: number) => void }) {
+  // #123 -> in-app issue link (fragment href, intercepted below)
+  const linked = text
+    .replace(/\r\n/g, '\n')
+    .replace(/(^|\W)#(\d{1,9})\b/g, (_m, pre, id) => `${pre}[#${id}](#issue-${id})`)
+  return (
+    <div
+      onClick={(e) => {
+        const a = (e.target as HTMLElement).closest('a')
+        const m = a?.getAttribute('href')?.match(/^#issue-(\d+)$/)
+        if (m) {
+          e.preventDefault()
+          onOpenIssue(Number(m[1]))
+        }
+      }}
+    >
+      <MarkdownRenderer content={linked} />
+    </div>
+  )
 }
 
-export default function IssueDetail({ id, onClose }: { id: number; onClose: () => void }) {
+function CommentBox({ id, userName }: { id: number; userName: string | undefined }) {
+  const api = useAppApi()
+  const qc = useQueryClient()
+  const S = useStrings()
+  const [body, setBody] = useState('')
+  const [preview, setPreview] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const post = useMutation({
+    mutationFn: () => api.post(`${API}/issue/comment`, { id, body }),
+    onSuccess: () => {
+      setBody('')
+      setPreview(false)
+      setErr(null)
+      qc.invalidateQueries({ queryKey: ['issue', id] })
+    },
+    onError: (e) => setErr(errMessage(e, S.errorFor, S.errorGeneric)),
+  })
+  return (
+    <section style={{ ...box.card, padding: 10 }}>
+      <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+        <strong className="text-sm">{S.commentTitle}</strong>
+        {userName ? <span className="text-sm text-muted" style={{ fontSize: 12 }}>{S.commentAs(userName)}</span> : null}
+        <Btn onClick={() => setPreview((p) => !p)} style={{ marginLeft: 'auto', fontSize: 12 }}>
+          {preview ? S.commentEdit : S.commentPreview}
+        </Btn>
+      </div>
+      {preview ? (
+        <div style={{ minHeight: 60 }}>
+          {body.trim() ? <MarkdownRenderer content={body} /> : <p className="text-sm text-muted">{S.commentEmpty}</p>}
+        </div>
+      ) : (
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder={S.commentPlaceholder}
+          rows={3}
+          style={{ width: '100%', fontSize: 13, resize: 'vertical' }}
+        />
+      )}
+      {err ? <p className="text-sm" style={{ color: 'var(--err, #d33)' }}>{err}</p> : null}
+      <div style={{ marginTop: 6, textAlign: 'right' }}>
+        <Btn primary disabled={!body.trim() || post.isPending} onClick={() => post.mutate()}>
+          {post.isPending ? S.commentPosting : S.commentPost}
+        </Btn>
+      </div>
+    </section>
+  )
+}
+
+export default function IssueDetail({
+  id,
+  onClose,
+  onOpenIssue,
+  user,
+}: {
+  id: number
+  onClose: () => void
+  onOpenIssue: (id: number) => void
+  user?: { id: number; login: string; name: string; admin: boolean }
+}) {
   const api = useAppApi()
   const S = useStrings()
   const { openChat } = useChatLauncher()
@@ -79,7 +155,7 @@ export default function IssueDetail({ id, onClose }: { id: number; onClose: () =
       </header>
 
       <div style={{ overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {q.error ? <ErrorNotice message={errMessage(q.error, S.errorGeneric)} /> : null}
+        {q.error ? <ErrorNotice message={errMessage(q.error, S.errorFor, S.errorGeneric)} /> : null}
         {!it && !q.error ? <p className="text-sm text-muted">{S.loading}</p> : null}
         {it ? (
           <>
@@ -115,7 +191,7 @@ export default function IssueDetail({ id, onClose }: { id: number; onClose: () =
 
             <section>
               <h3 className="text-sm" style={{ fontWeight: 600, marginBottom: 4 }}>{S.detailDescription}</h3>
-              {it.description.trim() ? <Body text={it.description} /> : <p className="text-sm text-muted">{S.detailNoDescription}</p>}
+              {it.description.trim() ? <Body text={it.description} onOpenIssue={onOpenIssue} /> : <p className="text-sm text-muted">{S.detailNoDescription}</p>}
             </section>
 
             {it.children.length ? (
@@ -175,12 +251,14 @@ export default function IssueDetail({ id, onClose }: { id: number; onClose: () =
                             {S.changed(d.name, d.oldValue, d.newValue)}
                           </div>
                         ))}
-                        {j.notes ? <Body text={j.notes} /> : null}
+                        {j.notes ? <Body text={j.notes} onOpenIssue={onOpenIssue} /> : null}
                       </li>
                     ))}
                 </ol>
               )}
             </section>
+
+            <CommentBox id={it.id} userName={user?.name} />
           </>
         ) : null}
       </div>

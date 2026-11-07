@@ -43,19 +43,46 @@ export interface IssueDetail extends IssueSummary {
   allowedStatuses: StatusRef[] | null
 }
 
-export interface SearchResult {
+export interface Chip {
+  kind: 'filter' | 'text'
+  field?: string
+  op?: string
+  values?: string[]
+  text?: string
+  negated?: boolean
+  raw: string
+}
+
+export interface QueryError {
+  token: string
+  code: string
+  value?: string
+  suggestion?: string
+}
+
+export interface ResultMeta {
+  chips: Chip[]
+  errors: QueryError[]
+  note?: string
+}
+
+export interface SearchResult extends ResultMeta {
   issues: IssueSummary[]
   total: number
   offset: number
   limit: number
   direct?: number
-  note?: string
 }
 
-export interface BoardResult {
+export interface BoardResult extends ResultMeta {
   columns: { status: StatusRef; issues: IssueSummary[]; total: number }[]
   perColumn: number
-  note?: string
+}
+
+export interface FieldMeta {
+  key: string
+  aliases: string[]
+  kind: string
 }
 
 export interface Meta {
@@ -64,6 +91,23 @@ export interface Meta {
   projects: { id: number; identifier: string; name: string; parentId: number | null }[]
   statuses: StatusRef[]
   trackers: Ref[]
+  priorities: Ref[]
+  queries: { id: number; name: string; isPublic: boolean; projectId: number | null }[]
+  fields: FieldMeta[]
+}
+
+export interface ProjectOptions {
+  members: { id: number; name: string; group: boolean }[]
+  versions: { id: number; name: string; status: string }[]
+  categories: Ref[]
+  customFields: Ref[]
+}
+
+export interface SavedView {
+  name: string
+  expr?: string
+  tab?: 'board' | 'list'
+  sort?: string
 }
 
 export interface SettingsView {
@@ -71,11 +115,4 @@ export interface SettingsView {
   apiKeySet: boolean
   insecure: boolean
   kanbanStatusIds: number[]
-}
-
-export interface Filters {
-  q: string
-  project: string
-  status: string
-  assignee: string
 }
