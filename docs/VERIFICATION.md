@@ -169,6 +169,8 @@
   （2026-11-07 ドキュメント・コード確認の範囲では禁止規定なし）
   - sandbox はエージェントのコマンド実行向けの仕組み（src/kiro_crew/sandbox_*.py）。MCP stdio サーバーはエージェントプロセスの子として起動し、ソース上 sandbox 適用の記述は見当たらないが、ランタイム依存の可能性が残る
   - **実機確認は F-09 実装時のスモークテストで行う**（MCP ツールから localhost:18081 の Redmine に接続）
+  - **2026-11-08 実機で確認済み**（Kiro Crew 0.13.0、acp_backend=devin 3000.12.17、Redmine 6.1.6 on localhost:18082）: 「Kiro に依頼」→ 同梱エージェントのチャットから `redmine_get_issue` / `redmine_search`（`any_searchable=~…&status_id=*`）が届き、`redmine_add_comment` で #1 に journal が付いた（15:34:44Z、Dev Tanaka 名義）。localhost への通信は問題なし
+  - 途中の失敗: ①`openChat({agent})` にインストール後のファイル名 `redmine-board--…` を渡すと「Bot '…' is unavailable」。宣言された `name` を渡す必要がある ②一時的に devin の「permission bridge failed closed」で接続が切れた（Kiro Crew 側。利用者が手元で解消）
 
 ### V-11 同梱エージェントとスキルの読み込み
 
