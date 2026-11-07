@@ -1,0 +1,29 @@
+{
+  "name": "redmine-board",
+  "version": "0.1.0",
+  "displayName": "Redmine Board",
+  "description": "Unofficial Redmine client: search, list and kanban your Redmine issues inside Kiro Crew, then hand an issue to a Kiro agent that reads it over MCP and posts results back with your approval. REST API only, no Redmine plugin.",
+  "author": "hddwm390",
+  "license": "MIT",
+  "minKiroCrewVersion": "0.13.0",
+  "tags": ["redmine", "issue-tracker", "kanban", "productivity", "developer-tools"],
+  "iconPath": "assets/icon.png",
+  "agents": ["agents/redmine-assistant.json"],
+  "skills": ["skills/redmine-assistant"],
+  "mcpServers": {
+    "redmine": { "command": "python3", "args": ["mcp/server.py"] }
+  },
+  "backend": {
+    "hooks": { "routes": "backend.routes:register_routes" }
+  },
+  "ui": {
+    "entry": "dist/index.mjs",
+    "pages": [
+      { "route": "/apps/redmine-board", "label": "Redmine", "iconUrl": "icon.svg" }
+    ],
+    "sidebar": { "section": "Apps", "order": 30 }
+  },
+  "permissions": { "api": ["/api/apps/redmine-board"], "events": [], "mcpTools": [], "storage": false, "cron": false },
+  "dependencies": { "commands": ["python3"] },
+  "platform": { "os": ["macos", "linux"], "installMode": "server" }
+}
