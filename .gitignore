@@ -1,0 +1,5 @@
+# test credentials / seed output (contains API keys)
+testenv/env-*.json
+__pycache__/
+*.pyc
+node_modules/
