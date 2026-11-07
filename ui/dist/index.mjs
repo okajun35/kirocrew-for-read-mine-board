@@ -191,7 +191,7 @@ function W() {
   var t;
   return (t = B.useLanguageGeneration) == null || t.call(B), Se() ? xe : ve;
 }
-const A = "/api/apps/redmine-board", ke = "redmine-board--redmine-assistant", oe = "redmine-board:filters", z = { q: "", project: "", status: "open", assignee: "" };
+const A = "/api/apps/redmine-board", ke = "redmine-board-assistant", oe = "redmine-board:filters", z = { q: "", project: "", status: "open", assignee: "" };
 function Ce() {
   try {
     const t = localStorage.getItem(oe);

@@ -8,7 +8,7 @@
   "minKiroCrewVersion": "0.13.0",
   "tags": ["redmine", "issue-tracker", "kanban", "productivity", "developer-tools"],
   "iconPath": "assets/icon.png",
-  "agents": ["agents/redmine-assistant.json"],
+  "agents": ["agents/redmine-board-assistant.json"],
   "skills": ["skills/redmine-assistant"],
   "mcpServers": {
     "redmine": { "command": "python3", "args": ["mcp/server.py"] }

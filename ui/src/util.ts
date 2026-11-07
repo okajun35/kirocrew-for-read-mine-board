@@ -2,7 +2,7 @@ import * as sdk from '@kirocrew/app-sdk'
 import type { Filters } from './types'
 
 export const API = '/api/apps/redmine-board'
-export const AGENT = 'redmine-board--redmine-assistant'
+export const AGENT = 'redmine-board-assistant'
 const FILTERS_KEY = 'redmine-board:filters'
 
 export const DEFAULT_FILTERS: Filters = { q: '', project: '', status: 'open', assignee: '' }

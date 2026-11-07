@@ -52,7 +52,8 @@ assets/icon.png           ストア用アイコン（512x512・不透明）
 
 ## 同梱エージェントとスキル
 
-- `agents/<x>.json` の `name` は短い名前（例 `takt-manager`）。インストール後は `<app>--<x>`（例 `for-takt--takt-manager`）になる
+- `agents/<x>.json` の `name` は短い名前（例 `takt-manager`）。インストール後のファイル名は `<app>--<x>.json`（例 `for-takt--takt-manager.json`）になるが、**中の `name` はそのまま**
+- **エージェントを名前で指定するとき（`openChat({ agent })` など）は、ファイル名ではなく中の `name` を渡す。** `redmine-board--redmine-assistant` を渡すと「Bot '…' is unavailable; restore it or choose a member」で止まった（`config/loader_snapshots.py` の `_materialized_kiro_agent` は宣言された `name` だけを照合する）。名前はホスト全体で共有されるので、`<app>-<role>` のようにアプリ名を前に付けて衝突を避ける（pptx-maker の流儀）
 - **スキルは `resources` に明示しないとエージェントから見えない。** 実際にここで詰まった:
   ```json
   "resources": ["skill://~/.kiro/crew/skills/<app>/<skill>/SKILL.md"]

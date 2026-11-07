@@ -18,7 +18,7 @@ Search, list and kanban your Redmine issues inside [Kiro Crew](https://github.co
 | List | Sortable table with paging. |
 | Kanban | One column per status, counts per column, drag & drop limited to the transitions Redmine allows you. |
 | Detail | Side panel with description, comments and history, attachments, subtasks, relations, link to Redmine. |
-| Ask Kiro | "Investigate" / "Plan the fix" / "Fix it" opens a **draft** chat with the bundled `redmine-assistant` agent. You press Send. |
+| Ask Kiro | "Investigate" / "Plan the fix" / "Fix it" opens a **draft** chat with the bundled `redmine-board-assistant` agent. You press Send. |
 | MCP tools | `redmine_search`, `redmine_get_issue`, `redmine_list_statuses`, `redmine_list_projects` (auto-approved, read-only); `redmine_add_comment`, `redmine_update_status` (need your approval every time). |
 | Languages | Japanese and English, following the Kiro Crew language setting. |
 
