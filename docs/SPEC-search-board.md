@@ -1,7 +1,7 @@
 # Redmine Board — 検索とボードの再設計 仕様 v0.1（ドラフト）
 
 - 位置づけ: [SPEC.md](SPEC.md) v0.3 の F-02（検索）・F-03（一覧）・F-04（カンバン）を置き換える。それ以外（接続設定、詳細、Kiro への引き渡し、MCP）は SPEC.md のまま
-- 状態: **未実装・一部未検証**。`【要検証 V-xx】` は [VERIFICATION.md](VERIFICATION.md) の V-15 以降で確かめる
+- 状態: **未実装**。REST の動きは [VERIFICATION.md](VERIFICATION.md) V-15〜V-19 で確認済み（5.1.12 / 6.1.6 とも同じ）。残る未確認は `【要検証 V-20】` だけ
 - 方針: Redmine の検索画面・ボードをそのまま写さない。Redmine の **クエリの力**（項目×比べ方×値、保存クエリ、ワークフロー）は使い、**操作の形**は使いやすい道具に合わせる
 
 ## 1. 背景と参考
@@ -55,13 +55,14 @@ type Filter = { field: FieldKey; op: Op; values: string[] }   // values は同�
 | `priority` | 優先度 | 名前 / id | `priority_id` |
 | `assignee` | 担当, 担当者 | `me` / `none` / ログイン名 / 名前 / id / グループ | `assigned_to_id` |
 | `author` | 作成者 | 同上 | `author_id` |
-| `watcher` | ウォッチ | `me` | `watcher_id` |
 | `version` | バージョン | 名前 / id / `none` | `fixed_version_id` |
 | `category` | カテゴリ | 名前 / id / `none` | `category_id` |
 | `parent` | 親 | `#id` / `none` | `parent_id` |
 | `created` / `updated` / `due` / `start` / `closed` | 作成, 更新, 期日, 開始, 完了日 | 日付・相対日付（§4.3） | `created_on` ほか |
 | `done` | 進捗 | 0–100 | `done_ratio` |
-| `cf.<名前>` | （カスタムフィールド名そのまま） | 型による | `cf_<id>` 【要検証 V-16】 |
+| `cf.<名前>` | （カスタムフィールド名そのまま） | 型による | `cf_<id>`（V-16 で確認済み） |
+
+（`watcher` は REST で絞り込めないことが V-15 で分かったため項目にしない）
 
 名前で書かれた値は、backend がメタデータ（§8）で id に引き直す。曖昧なとき（同名の担当者が2人など）はエラーにして候補を返す。
 
@@ -78,7 +79,15 @@ type Filter = { field: FieldKey; op: Op; values: string[] }   // values は同�
 | 期限切れ | `due:overdue` | `<t+` + 0（相当） | 期日 |
 | 含む / 含まない | 自由語 / `-語` | `~` / `!~` | `any_searchable` |
 
-演算子の名前は Redmine のフィルタ画面で使われているもの（`>t-` など）。**REST で `f[]` / `op[]` / `v[]` の形がそのまま通るかは未確認**【要検証 V-15】。通らない演算子は §11 の段階で外す。
+REST への送り方（V-15 で確認済み、5.1 / 6.1 とも同じ）:
+
+- **一覧型・数値・本文・カスタムフィールド**は `f[]` / `op[]` / `v[]` で送る。複数値・否定はこちらでしか書けない
+- **日付は `f[]` では黙って無視される**。`created_on=t`、`created_on=><a|b`、`created_on=>t-14` のような**直接パラメーター**で送る
+- **`f[]` を1つでも付けると既定の「未完了だけ」が効かなくなる**。状態の条件は常に明示して送る
+- 存在しない項目名は黙って無視され、存在しない演算子は **404** を返す。項目名と演算子は backend が送信前に検証する
+- 項目どうしは AND（項目をまたぐ OR は無い）
+
+複数キーワードの扱い（V-15 で確認）: `any_searchable` の `~a b` は句として探して一致しない。`any_searchable` を2回送ると後だけが効く。**AND な複数キーワードは 1 回の REST では書けない**ので、backend がキーワードごとに問い合わせて issue id の積集合を取り、最後の問い合わせを `issue_id=id1,id2,…` で絞る。`!~語`（含まない）は 1 語ずつそのまま送れる。
 
 ## 4. 検索式
 
@@ -121,7 +130,7 @@ assignee:me status:"In Progress",Feedback updated:<7d priority:>=High login -CSV
 ## 6. 件数パネル（Slice by）
 
 - 左に「項目を1つ選んで、その値ごとの件数」を出す。既定はステータス。担当者・トラッカー・優先度・バージョンに切り替えられる
-- 件数は今のクエリにその値の条件を足して `limit=1` の `total_count` で数える。値の数だけリクエストが出るので、**上位 20 値まで**、5 分キャッシュ、ページが非表示の間は更新しない【要検証 V-18: 速さ】
+- 件数は今のクエリにその値の条件を足して `limit=1` の `total_count` で数える。値の数だけリクエストが出るので、**上位 20 値まで**、5 分キャッシュ、ページが非表示の間は更新しない（V-18: ローカル 170 件で 20 値を 6 並列 0.4〜0.5 秒。リモートではレイテンシが効くので上限は維持）
 - 値を押すとチップに足す。もう一度押すと外す
 - 件数 0 の値は薄くする（隠さない）
 
@@ -144,7 +153,7 @@ assignee:me status:"In Progress",Feedback updated:<7d priority:>=High login -CSV
 - 動かせるのは、列とレーンの項目のうち **Redmine で書き換えられるもの**（ステータス、担当者、バージョン、優先度、カテゴリ）
 - つかんだ瞬間に、落とせる列とレーンを強調し、落とせないものを薄くする
   - ステータス: そのチケットの `allowed_statuses`
-  - 担当者: そのプロジェクトの担当できるメンバー【要検証 V-19】
+  - 担当者: そのプロジェクトの担当できるメンバー（`/projects/<id>/memberships.json`。V-19 で一般利用者でも取れることを確認）
   - バージョン: そのプロジェクトで使える未完了のバージョン
 - 落としたら PUT し、**必ず取り直して反映を確かめる**（Redmine は無効な変更を 204 で黙って無視する。V-02）
 - 失敗したらカードを元の場所に戻し、理由を出す
@@ -158,7 +167,8 @@ assignee:me status:"In Progress",Feedback updated:<7d priority:>=High login -CSV
 - 名前を付けて保存。保存先はアプリのデータ領域（`data/views.json`）。所有者だけが保存・削除できる
 - 中身: 検索式、レイアウト、列とレーンの項目、カード項目、並び順、WIP 上限、件数パネルの項目
 - 既定ビューを持つ（「自分の担当」「未割り当て」「今週更新」）
-- **Redmine の保存クエリ**も一覧に出し、開ける（`/queries.json` → `issues.json?query_id=`）【要検証 V-17】。開いた後にチップで条件を足せるかは、Redmine が `query_id` と他のフィルタの併用を許すかによる。許さないときは「Redmine のクエリ」バッジを付けて条件編集を無効にする
+- **Redmine の保存クエリ**も一覧に出し、開ける（`/queries.json` → `issues.json?query_id=`。自分のクエリと公開クエリが返る。V-17 で確認）
+- **保存クエリの利用中は `query_id` と他の条件を併用できない**（追加条件は黙って無視される。V-17 で確認）。そのため保存クエリを開いている間は「Redmine のクエリ」バッジを付けてチップ編集を無効にする。「条件をコピーして自分のビューにする」で、クエリの条件を自分のチップに写せると良い（`/queries/<id>.json` に `filters` が返るかは未確認 — V-21 で確かめる）
 
 ### 7.5 キーボード
 
@@ -181,10 +191,10 @@ assignee:me status:"In Progress",Feedback updated:<7d priority:>=High login -CSV
 |---|---|---|
 | プロジェクト | `/projects.json` | 今と同じ |
 | ステータス・トラッカー・優先度 | `/issue_statuses.json`, `/trackers.json`, `/enumerations/issue_priorities.json` | |
-| メンバー | `/projects/<id>/memberships.json` | 権限によって 403。そのときは最近の担当者から作る |
-| バージョン・カテゴリ | `/projects/<id>/versions.json`, `/projects/<id>/issue_categories.json` | |
-| カスタムフィールド | `/custom_fields.json` は**管理者だけ**。一般利用者は `/projects/<id>.json?include=issue_custom_fields` などで取る【要検証 V-16】 | 取れなければ `cf.` の候補を出さない |
-| 保存クエリ | `/queries.json` | 【要検証 V-17】 |
+| メンバー | `/projects/<id>/memberships.json` | V-19 で一般利用者でも取れることを確認 |
+| バージョン・カテゴリ | `/projects/<id>/versions.json`, `/projects/<id>/issue_categories.json` | `project.json?include=versions` では取れない（V-19） |
+| カスタムフィールド | `/projects/<id>.json?include=issue_custom_fields` | V-16 で確認（`/custom_fields.json` は管理者だけなので使わない） |
+| 保存クエリ | `/queries.json` | V-17 で確認 |
 
 ## 9. Kiro に聞く検索（売りにする機能）
 
@@ -234,5 +244,5 @@ assignee:me status:"In Progress",Feedback updated:<7d priority:>=High login -CSV
 |---|---|---|
 | S-1 | 検索式の項目名を日本語でも受けるか、英語だけにするか | 受ける案で書いた。実装の手間を見て判断 |
 | S-2 | 保存ビューを利用者ごとに分けるか | 今は所有者1人の前提 |
-| S-3 | `query_id` と追加条件の併用 | V-17 の結果 |
+| ~~S-3~~ | ~~`query_id` と追加条件の併用~~ | **決定: 併用できない**（V-17）。保存クエリ利用中はチップ編集を無効にする |
 | S-4 | §9 を P1 に入れるか | Kiroween の締切（12/4）と V-20 の結果 |
