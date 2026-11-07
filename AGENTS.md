@@ -11,9 +11,15 @@ Kiro Crew の外部アプリ「Redmine Board」。**検証済み・未実装**�
 ## 検証用 Redmine（Docker）
 
 - `redmine:5.1` → http://localhost:18081、`redmine:6` → http://localhost:18082（admin/redmine123、REST API 有効化済み、170件投入済み）
-- 各環境の API キーは `testenv/env-*.json`（git 対象外）。再投入は `python3 testenv/seed.py <base> <admin_key> <out>`
-- 検証の再現は `python3 testenv/verify_redmine.py testenv/env-51.json`
+- 各環境の API キーは**アプリの外**の `/home/hddwm390/tmp/KiroCrew-app/redmine-board-testenv/env-*.json`。`kirocrew app install` は作業ツリーを丸ごとコピーする（git 対象外のファイルも）ので、鍵をリポジトリ内に置かない
+- 再投入は `python3 testenv/seed.py <base> <admin_key> <out>`、検証の再現は `python3 testenv/verify_redmine.py ../redmine-board-testenv/env-51.json`
 - Kiroween 締切: 2026-12-04 14:00 PT（V-13）
+
+## テスト
+
+- コアと MCP: `python3 -m unittest discover -s tests`（標準ライブラリだけ。MCP は `python3 -S -I` で起動して依存が無いことも確かめる）
+- backend: `/home/hddwm390/tmp/KiroCrew/.venv/bin/python -m unittest discover -s backend/tests`
+- UI: `cd ui && npx tsc --noEmit -p . && npm run build`（`ui/dist/index.mjs` はコミットする）
 
 ## 関連する場所
 

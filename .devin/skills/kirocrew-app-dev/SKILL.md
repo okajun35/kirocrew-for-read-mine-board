@@ -76,6 +76,9 @@ kirocrew app enable <name>            # trust 付与のあと
 kirocrew app update <name> --source <dir>
 ```
 
+- **`app install` / `app update` は作業ツリーを丸ごとコピーする。`.gitignore` は見ない**（除外は `node_modules`・`.git`・`__pycache__`・`.venv` だけ）。テスト用の鍵や `.env` をアプリのディレクトリに置くと、インストール先にも入る（redmine-board で実際に起きた）。秘密はアプリの外に置く
+- **ホストの Tailwind はホスト自身のソースしか走査しない**（`website/src/index.css` の `@source`）。アプリだけが使うクラス（`text-[13px]` など）は効かないことがある。レイアウトに効くものは `style` と CSS 変数（`var(--card)`、`var(--border)`、`var(--muted)`、`var(--accent)`、`var(--bg-hover)`）で書く
+- `@kirocrew/app-sdk/ui` の `MarkdownRenderer`（サニタイズ込み）や、`@kirocrew/app-sdk` の `activeLocale` / `fmtDateTime` / `useLanguageGeneration` が使える。古いホストで無い名前を名前付き import すると bundle ごと読めなくなるので、`import * as sdk` で読んで無ければ代替する
 - **インストールされたコピーは `~/.kiro/crew/apps/<name>/` にあり、実行時のデータもそこに書かれる。** リポジトリ側の `data/` を見ても実データは無い（ここで一度見間違えた）
 - エージェントやスキルを変えたら `app update` を忘れない
 
