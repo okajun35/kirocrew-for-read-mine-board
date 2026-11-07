@@ -17,6 +17,7 @@ import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from . import query as qmod
 from . import settings
 from .client import RedmineClient
 from .util import ToolError, atomic_write_json, data_dir, int_arg, read_json, str_arg
@@ -204,6 +205,132 @@ def direct_id(q):
 
 
 # ---------------------------------------------------------------------------
+# metadata (SPEC-search-board §8): cached per base URL, 10 min
+# ---------------------------------------------------------------------------
+
+META_TTL_SECS = 600
+_meta_cache = {}
+
+
+def _meta_get(client, key, loader):
+    now = time.time()
+    ent = _meta_cache.get((client.base_url, key))
+    if ent and now - ent[0] < META_TTL_SECS:
+        return ent[1]
+    data = loader()
+    _meta_cache[(client.base_url, key)] = (now, data)
+    return data
+
+
+def list_priorities(client):
+    return [
+        {"id": p.get("id"), "name": p.get("name")}
+        for p in client.get("/enumerations/issue_priorities.json").get("issue_priorities") or []
+    ]
+
+
+def list_versions(client, project):
+    if not project or not _IDENT.match(project):
+        raise ToolError("project must be a project id or identifier")
+    try:
+        res = client.get(f"/projects/{project}/versions.json", {"limit": MAX_LIMIT})
+    except ToolError as e:
+        if e.code in ("redmine_forbidden", "not_found"):
+            return []
+        raise
+    return [{"id": v.get("id"), "name": v.get("name"), "status": v.get("status")}
+            for v in res.get("versions") or []]
+
+
+def list_categories(client, project):
+    if not project or not _IDENT.match(project):
+        raise ToolError("project must be a project id or identifier")
+    try:
+        res = client.get(f"/projects/{project}/issue_categories.json", {"limit": MAX_LIMIT})
+    except ToolError as e:
+        if e.code in ("redmine_forbidden", "not_found"):
+            return []
+        raise
+    return [_ref(c) for c in res.get("issue_categories") or []]
+
+
+def list_custom_fields(client, project):
+    """Issue custom fields of a project (V-16: /custom_fields.json is admin-only)."""
+    if not project or not _IDENT.match(project):
+        raise ToolError("project must be a project id or identifier")
+    try:
+        res = client.get(f"/projects/{project}.json", {"include": "issue_custom_fields"})
+    except ToolError as e:
+        if e.code in ("redmine_forbidden", "not_found"):
+            return []
+        raise
+    return [_ref(c) for c in (res.get("project") or {}).get("issue_custom_fields") or []]
+
+
+def list_queries(client):
+    try:
+        res = client.get("/queries.json", {"limit": MAX_LIMIT})
+    except ToolError as e:
+        if e.code in ("redmine_forbidden", "not_found"):
+            return []
+        raise
+    return [
+        {"id": q.get("id"), "name": q.get("name"), "isPublic": bool(q.get("is_public")),
+         "projectId": q.get("project_id")}
+        for q in res.get("queries") or []
+    ]
+
+
+def build_meta(client, parsed):
+    """Fetch only the lists the parsed query actually needs."""
+    meta = qmod.Meta()
+    need = {f.field for f in parsed.filters}
+    need.add("project")  # projects are cheap and used for scoping
+    loaders = {
+        "status": ("statuses", lambda: list_statuses(client)),
+        "tracker": ("trackers", lambda: list_trackers(client)),
+        "priority": ("priorities", lambda: list_priorities(client)),
+        "project": ("projects", lambda: list_projects(client)),
+    }
+    for field, (key, loader) in loaders.items():
+        if field in need:
+            setattr(meta, key, _meta_get(client, key, loader))
+    project_ref = next((f.values[0] for f in parsed.filters if f.field == "project" and f.values), None)
+    proj = project_ref or ""
+    for field, (key, loader) in {
+        "assignee": ("users", lambda: _members_for(client, proj)),
+        "author": ("users", lambda: _members_for(client, proj)),
+        "version": ("versions", lambda: list_versions(client, proj)),
+        "category": ("categories", lambda: list_categories(client, proj)),
+    }.items():
+        if field in need:
+            try:
+                setattr(meta, key, _meta_get(client, f"{key}:{proj}", loader))
+            except ToolError:
+                setattr(meta, key, [])
+    if any(f.field.startswith("cf.") for f in parsed.filters):
+        try:
+            meta.custom_fields = _meta_get(client, f"cf:{proj}", lambda: list_custom_fields(client, proj))
+        except ToolError:
+            meta.custom_fields = []
+    return meta
+
+
+def _members_for(client, project):
+    """Members of one project, or merged members of up to 15 projects."""
+    if project:
+        return list_members(client, project)
+    merged = {}
+    for p in list_projects(client)[:15]:
+        try:
+            for m in list_members(client, p["identifier"]):
+                merged.setdefault(m["id"], m)
+        except ToolError:
+            continue
+    return list(merged.values())
+
+
+# ---------------------------------------------------------------------------
 # reads
 # ---------------------------------------------------------------------------
 
@@ -231,6 +358,158 @@ def search(client, args):
         "offset": offset,
         "limit": limit,
     }
+    if note:
+        out["note"] = note
+    return out
+
+
+# ---------------------------------------------------------------------------
+# expression search (SPEC-search-board §3-§5)
+# ---------------------------------------------------------------------------
+
+def _ids_for(client, params, cap=500):
+    out, offset = set(), 0
+    while len(out) < cap:
+        res = client.get("/issues.json", {**params, "offset": offset, "limit": MAX_LIMIT})
+        batch = res.get("issues") or []
+        out.update(i.get("id") for i in batch)
+        offset += len(batch)
+        if len(batch) < MAX_LIMIT or offset >= int(res.get("total_count") or 0):
+            break
+    return out
+
+
+def _plan_params(client, plan, terms):
+    """Final request params for a Plan, folding text terms and deferred
+    dates through id-set intersection (V-15: one text term per request;
+    f[] and direct params cannot be mixed)."""
+    terms = terms or []
+    if len(terms) <= 1 and not plan.dates:
+        if terms:
+            return plan.with_text(terms[0].text, terms[0].negated), None
+        return dict(plan.params), None
+    searchable = supports_any_searchable(client)
+    sets = []
+    if searchable:
+        jobs = [(plan.with_text(t.text, t.negated),) for t in terms]
+        if plan.dates:
+            jobs.append(({"status_id": "*", **plan.dates},))
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            sets = [s for s in pool.map(lambda a: _ids_for(client, a[0]), jobs)]
+    else:
+        for t in terms:
+            if t.negated:
+                continue
+            ids, _total = _keyword_ids(client, t.text, plan.params.get("project_id"))
+            sets.append(set(ids))
+        if plan.dates:
+            sets.append(_ids_for(client, {"status_id": "*", **plan.dates}))
+    if not sets:
+        return None, None
+    ids = set.intersection(*sets)
+    if not ids:
+        return None, None
+    note = "partial_negation" if (not searchable and any(t.negated for t in terms)) else None
+    return plan.with_issue_ids(sorted(ids)), note
+
+
+def _strip_status(params):
+    """Remove status filtering (board replaces it per column)."""
+    out = dict(params)
+    out.pop("status_id", None)
+    flist = [f for f in (out.get("f[]") or []) if f != "status_id"]
+    if "f[]" in out:
+        if flist:
+            out["f[]"] = flist
+        else:
+            out.pop("f[]")
+    out.pop("op[status_id]", None)
+    out.pop("v[status_id][]", None)
+    return out
+
+
+def _status_columns(parsed, statuses, chosen_ids):
+    """Which status columns the query's status filter allows."""
+    by_id = {s["id"]: s for s in statuses}
+    wanted = [by_id[i] for i in chosen_ids if i in by_id] or statuses
+    sf = next((f for f in parsed.filters if f.field == "status"), None)
+    if sf is None:
+        return wanted
+    if sf.op == "o":
+        return [s for s in wanted if not s["isClosed"]]
+    if sf.op == "c":
+        return [s for s in wanted if s["isClosed"]]
+    if sf.op == "*":
+        return wanted
+    ids = {int(v) for v in (getattr(sf, "resolved", None) or sf.values) if str(v).isdigit()}
+    if sf.op == "!":
+        return [s for s in wanted if s["id"] not in ids]
+    return [s for s in wanted if s["id"] in ids]
+
+
+def search_expr(client, expr, sort="updated_on:desc", offset=0, limit=25):
+    """Expression search: returns issues plus parsed chips and errors."""
+    expr = (expr or "").strip()
+    parsed = qmod.parse(expr)
+    did = direct_id(expr)
+    if did is not None:
+        try:
+            it = client.get(f"/issues/{did}.json").get("issue") or {}
+            return {"issues": [summary(client, it)], "total": 1, "offset": 0,
+                    "limit": limit, "direct": did, "chips": [], "errors": []}
+        except ToolError as e:
+            if e.code != "not_found":
+                raise
+            return {"issues": [], "total": 0, "offset": 0, "limit": limit,
+                    "direct": did, "chips": [], "errors": []}
+    meta = build_meta(client, parsed)
+    plan = qmod.build_params(parsed, meta)
+    params, note = _plan_params(client, plan, parsed.terms)
+    if params is None:
+        return {"issues": [], "total": 0, "offset": offset, "limit": limit,
+                "chips": parsed.chips(), "errors": plan.errors}
+    params["sort"] = qmod.sort_param(sort)
+    res = client.get("/issues.json", {**params, "offset": offset, "limit": limit})
+    out = {
+        "issues": [summary(client, it) for it in res.get("issues") or []],
+        "total": int(res.get("total_count") or 0),
+        "offset": offset,
+        "limit": limit,
+        "chips": parsed.chips(),
+        "errors": plan.errors,
+    }
+    if note:
+        out["note"] = note
+    return out
+
+
+def board_expr(client, expr, per_column=25, status_id=None, sort="updated_on:desc"):
+    """Board columns over the same expression (columns = statuses)."""
+    parsed = qmod.parse(expr or "")
+    statuses = list_statuses(client)
+    chosen = settings.view().get("kanbanStatusIds") or []
+    meta = build_meta(client, parsed)
+    plan = qmod.build_params(parsed, meta)
+    plan.params = _strip_status(plan.params)
+    columns = _status_columns(parsed, statuses, chosen)
+    if status_id is not None:
+        columns = [s for s in columns if s["id"] == int(status_id)]
+    params, note = _plan_params(client, plan, parsed.terms)
+
+    def fetch(col):
+        if params is None:
+            return {"status": col, "issues": [], "total": 0}
+        res = client.get("/issues.json", {
+            **params, "status_id": col["id"], "limit": per_column,
+            "sort": qmod.sort_param(sort)})
+        return {"status": col,
+                "issues": [summary(client, it) for it in res.get("issues") or []],
+                "total": int(res.get("total_count") or 0)}
+
+    with ThreadPoolExecutor(max_workers=min(6, max(1, len(columns)))) as pool:
+        cols = list(pool.map(fetch, columns)) if columns else []
+    out = {"columns": cols, "perColumn": per_column,
+           "chips": parsed.chips(), "errors": plan.errors}
     if note:
         out["note"] = note
     return out

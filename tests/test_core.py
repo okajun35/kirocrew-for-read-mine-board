@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fake_redmine import API_KEY, FakeRedmine  # noqa: E402
-from rb_core import issues, settings  # noqa: E402
+from rb_core import issues, query as qmod, settings  # noqa: E402
 from rb_core.client import RedmineClient, check_path  # noqa: E402
 from rb_core.util import ToolError  # noqa: E402
 
@@ -131,6 +131,131 @@ class SearchTests(CoreCase):
         self.assertEqual([c["status"]["id"] for c in b["columns"]], [5, 1])
 
 
+class QueryParseTests(unittest.TestCase):
+    """Parser unit tests: no Redmine needed."""
+
+    def test_fields_and_keywords(self):
+        p = qmod.parse('assignee:me status:"In Progress",New ログイン -CSV')
+        self.assertEqual([(t.text, t.negated) for t in p.terms], [("ログイン", False), ("CSV", True)])
+        fields = {f.field: (f.op, f.values) for f in p.filters}
+        self.assertEqual(fields["assignee"], ("=", ["me"]))
+        self.assertEqual(fields["status"], ("=", ["In Progress", "New"]))
+
+    def test_negation_and_ja_aliases(self):
+        p = qmod.parse("-状態:完了 担当:自分 更新:<7d")
+        f = {f.field: f for f in p.filters}
+        self.assertEqual(f["status"].op, "o")          # -closed => open
+        self.assertEqual(f["assignee"].values, ["自分"])
+        self.assertEqual(f["updated"].values, ["<7d"])
+
+    def test_unknown_field_is_error_and_term(self):
+        p = qmod.parse("statsu:open foo")
+        self.assertTrue(any(e["code"] == "unknown_field" for e in p.errors))
+        self.assertIn("foo", [t.text for t in p.terms])
+
+    def test_special_values(self):
+        p = qmod.parse("status:open 担当:なし 期日:overdue done:>=50")
+        f = {f.field: f for f in p.filters}
+        self.assertEqual(f["status"].op, "o")
+        self.assertEqual(f["assignee"].op, "!*")
+        self.assertEqual(f["due"].values, ["overdue"])
+
+    def test_build_params_multi_value_uses_f(self):
+        p = qmod.parse("status:New,Closed 更新:<7d")
+        meta = qmod.Meta()
+        meta.statuses = [{"id": 1, "name": "New"}, {"id": 5, "name": "Closed"}]
+        plan = qmod.build_params(p, meta)
+        self.assertFalse(plan.errors)
+        self.assertEqual(plan.mode, "f")
+        self.assertEqual(plan.params["v[status_id][]"], ["1", "5"])
+        self.assertEqual(plan.dates, {"updated_on": ">t-7"})
+        self.assertNotIn("updated_on", plan.params["f[]"])
+
+    def test_build_params_direct_when_simple(self):
+        p = qmod.parse("status:New 担当:me 更新:<7d")
+        meta = qmod.Meta()
+        meta.statuses = [{"id": 1, "name": "New"}]
+        plan = qmod.build_params(p, meta)
+        self.assertEqual(plan.mode, "direct")
+        self.assertEqual(plan.params["status_id"], "1")
+        self.assertEqual(plan.params["assigned_to_id"], "me")
+        self.assertEqual(plan.params["updated_on"], ">t-7")
+
+    def test_default_status(self):
+        plan = qmod.build_params(qmod.parse(""), qmod.Meta())
+        self.assertEqual(plan.mode, "direct")
+        self.assertEqual(plan.params["status_id"], "o")
+
+    def test_priority_ge_expands_by_position(self):
+        meta = qmod.Meta()
+        meta.priorities = [{"id": 1, "name": "Low"}, {"id": 2, "name": "Normal"}, {"id": 3, "name": "High"}]
+        plan = qmod.build_params(qmod.parse("priority:>=Normal"), meta)
+        self.assertFalse(plan.errors)
+        self.assertEqual(plan.mode, "f")  # expansion yields multiple ids
+        self.assertEqual(plan.params["v[priority_id][]"], ["2", "3"])
+        plan = qmod.build_params(qmod.parse("priority:>=High"), meta)
+        self.assertEqual(plan.mode, "direct")
+        self.assertEqual(plan.params["priority_id"], "3")
+
+    def test_unknown_value_is_error(self):
+        p = qmod.parse("status:NoSuchStatus")
+        meta = qmod.Meta()
+        meta.statuses = [{"id": 1, "name": "New"}]
+        plan = qmod.build_params(p, meta)
+        self.assertTrue(any(e["code"] == "unknown_value" for e in plan.errors))
+
+
+class ExprSearchTests(CoreCase):
+    def test_expr_status_and_keyword(self):
+        r = issues.search_expr(self.client, "status:New ログイン")
+        self.assertTrue(r["issues"])
+        self.assertTrue(all(i["status"]["name"] == "New" for i in r["issues"]))
+        self.assertTrue(r["chips"])
+
+    def test_expr_multi_term_intersection(self):
+        # 'Issue' matches all, 'ログイン' matches i%5==0 -> intersection = ログイン hits
+        r = issues.search_expr(self.client, "Issue ログイン status:*")
+        self.assertTrue(r["issues"])
+        self.assertTrue(all("ログイン" in i["subject"] for i in r["issues"]))
+
+    def test_expr_negated_term(self):
+        r = issues.search_expr(self.client, "-ログイン status:*")
+        self.assertTrue(r["issues"])
+        self.assertTrue(all("ログイン" not in i["subject"] for i in r["issues"]))
+
+    def test_expr_assignee_me(self):
+        r = issues.search_expr(self.client, "assignee:me status:*")
+        self.assertTrue(r["issues"])
+        self.assertTrue(all(i["assignedTo"] and i["assignedTo"]["id"] == 7 for i in r["issues"]))
+
+    def test_expr_direct_id(self):
+        r = issues.search_expr(self.client, "#3")
+        self.assertEqual(r["direct"], 3)
+
+    def test_board_expr_columns_follow_status_filter(self):
+        b = issues.board_expr(self.client, "status:New")
+        self.assertEqual([c["status"]["id"] for c in b["columns"]], [1])
+        self.assertTrue(b["columns"][0]["issues"])
+
+    def test_board_expr_default_columns(self):
+        b = issues.board_expr(self.client, "")
+        self.assertEqual(len(b["columns"]), 3)
+
+
+class ViewsTests(CoreCase):
+    def test_save_list_delete(self):
+        settings.save_view("mine", {"expr": "assignee:me", "tab": "board"})
+        views = settings.list_views()
+        self.assertEqual(views[0]["name"], "mine")
+        self.assertEqual(views[0]["expr"], "assignee:me")
+        mode = stat.S_IMODE(os.stat(os.path.join(self.tmp.name, "views.json")).st_mode)
+        self.assertEqual(mode, 0o600)
+        settings.delete_view("mine")
+        self.assertEqual(settings.list_views(), [])
+        with self.assertRaises(ToolError):
+            settings.delete_view("mine")
+
+
 class FallbackSearchTests(CoreCase):
     any_searchable = False
 
@@ -178,10 +303,10 @@ class WriteTests(CoreCase):
         try:
             orig = self.fake.handle
 
-            def handle(h, method, path, q, body):
+            def handle(h, method, path, q, body, fqs=None):
                 if method == "PUT":
                     fake_redmine.WORKFLOW[1] = [1]
-                return orig(h, method, path, q, body)
+                return orig(h, method, path, q, body, fqs=fqs)
 
             self.fake.handle = handle
             with self.assertRaises(ToolError) as cm:

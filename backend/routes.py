@@ -33,8 +33,13 @@ def register_routes(ctx):
         Route("POST", "/settings/test", handlers.test_connection),
         Route("GET", "/meta", handlers.meta),
         Route("GET", "/members", handlers.members),
+        Route("GET", "/options", handlers.options),
         Route("GET", "/issues", handlers.search_issues),
         Route("GET", "/board", handlers.board),
         Route("GET", "/issue", handlers.get_issue),
+        Route("GET", "/views", handlers.list_views),
         Route("POST", "/issue/status", handlers.update_status),
+        Route("POST", "/issue/comment", handlers.add_comment),
+        Route("POST", "/views", handlers.save_view),
+        Route("POST", "/views/delete", handlers.delete_view),
     ]

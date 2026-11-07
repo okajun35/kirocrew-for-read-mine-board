@@ -12,9 +12,9 @@ import logging
 
 from aiohttp import web
 
-from ..rb_core import issues, settings
+from ..rb_core import issues, query as qmod, settings
 from ..rb_core.client import RedmineClient, from_settings
-from ..rb_core.util import ToolError, int_arg
+from ..rb_core.util import ToolError, int_arg, str_arg
 
 MAX_BODY_BYTES = 256 * 1024
 
@@ -205,6 +205,12 @@ def meta(query):
         "projects": issues.list_projects(c),
         "statuses": issues.list_statuses(c),
         "trackers": issues.list_trackers(c),
+        "priorities": issues.list_priorities(c),
+        "queries": issues.list_queries(c),
+        "fields": [
+            {"key": k, "aliases": list(v[2]), "kind": v[1]}
+            for k, v in sorted(qmod.FIELDS.items())
+        ],
     }
 
 
@@ -214,18 +220,53 @@ def members(query):
 
 
 @_reader
+def options(query):
+    """Project-scoped metadata: members, versions, categories, custom fields."""
+    c = from_settings()
+    proj = query.get("project") or ""
+    return {
+        "members": issues.list_members(c, proj),
+        "versions": issues.list_versions(c, proj),
+        "categories": issues.list_categories(c, proj),
+        "customFields": issues.list_custom_fields(c, proj),
+    }
+
+
+@_reader
 def search_issues(query):
-    return issues.search(from_settings(), query)
+    q = query.get("query")
+    if q is None:
+        return issues.search(from_settings(), query)  # legacy callers
+    return issues.search_expr(
+        from_settings(), q,
+        sort=query.get("sort") or "updated_on:desc",
+        offset=int_arg(query, "offset", default=0, lo=0),
+        limit=int_arg(query, "limit", default=25, lo=1, hi=100),
+    )
 
 
 @_reader
 def board(query):
-    return issues.board(from_settings(), query)
+    q = query.get("query")
+    if q is None:
+        return issues.board(from_settings(), query)  # legacy callers
+    status_id = query.get("statusId")
+    return issues.board_expr(
+        from_settings(), q,
+        per_column=int_arg(query, "perColumn", default=30, lo=1, hi=100),
+        status_id=int(status_id) if status_id else None,
+        sort=query.get("sort") or "updated_on:desc",
+    )
 
 
 @_reader
 def get_issue(query):
     return issues.get_issue(from_settings(), int_arg(query, "id", required=True, lo=1))
+
+
+@_reader
+def list_views(query):
+    return {"views": settings.list_views()}
 
 
 # ---------------------------------------------------------------------------
@@ -239,3 +280,26 @@ def update_status(body):
         int_arg(body, "id", required=True, lo=1),
         int_arg(body, "statusId", required=True, lo=1),
     )
+
+
+@_writer("redmine-board.issue.comment")
+def add_comment(body):
+    return issues.add_comment(
+        from_settings(),
+        int_arg(body, "id", required=True, lo=1),
+        str_arg(body, "body", required=True),
+    )
+
+
+@_writer("redmine-board.views")
+def save_view(body):
+    name = str_arg(body, "name", required=True)
+    view = body.get("view")
+    if not isinstance(view, dict):
+        raise ToolError("view must be an object")
+    return settings.save_view(name, view)
+
+
+@_writer("redmine-board.views.delete")
+def delete_view(body):
+    return settings.delete_view(str_arg(body, "name", required=True))

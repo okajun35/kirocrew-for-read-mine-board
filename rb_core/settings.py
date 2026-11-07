@@ -83,3 +83,52 @@ def save(base_url=None, api_key=None, kanban_status_ids=None):
         s["kanbanStatusIds"] = kanban_status_ids[:30]
     atomic_write_json(_path(), s, mode=0o600)
     return view()
+
+
+# ---------------------------------------------------------------------------
+# saved views (SPEC-search-board §7.4): name -> {expr, tab, sort}
+# ---------------------------------------------------------------------------
+
+MAX_VIEWS = 50
+_VIEW_KEYS = ("expr", "tab", "sort", "columnField", "lanes", "cardFields", "wipLimits", "hiddenColumns")
+
+
+def _views_path():
+    return data_dir() / "views.json"
+
+
+def list_views():
+    raw = read_json(_views_path(), default={})
+    if not isinstance(raw, dict):
+        return []
+    out = []
+    for name, v in raw.items():
+        if isinstance(v, dict):
+            out.append({"name": name, **{k: v[k] for k in _VIEW_KEYS if k in v}})
+    return sorted(out, key=lambda x: x["name"])
+
+
+def save_view(name, view):
+    if not isinstance(name, str) or not name.strip() or len(name) > 80:
+        raise ToolError("view name must be 1-80 characters")
+    name = name.strip()
+    raw = read_json(_views_path(), default={})
+    if not isinstance(raw, dict):
+        raw = {}
+    if name not in raw and len(raw) >= MAX_VIEWS:
+        raise ToolError(f"at most {MAX_VIEWS} views can be saved")
+    clean = {k: view[k] for k in _VIEW_KEYS if k in view}
+    if "expr" in clean and not isinstance(clean["expr"], str):
+        raise ToolError("view expr must be a string")
+    raw[name] = clean
+    atomic_write_json(_views_path(), raw, mode=0o600)
+    return {"ok": True, "views": list_views()}
+
+
+def delete_view(name):
+    raw = read_json(_views_path(), default={})
+    if not isinstance(raw, dict) or name not in raw:
+        raise ToolError("no saved view with that name", code="not_found")
+    del raw[name]
+    atomic_write_json(_views_path(), raw, mode=0o600)
+    return {"ok": True, "views": list_views()}

@@ -69,7 +69,16 @@ def _schema(properties, required):
 # ---------------------------------------------------------------------------
 
 def h_search(args):
-    res = issues.search(from_settings(), args)
+    query = str_arg(args, "query")
+    if query is not None:
+        res = issues.search_expr(
+            from_settings(), query,
+            sort=str_arg(args, "sort") or "updated_on:desc",
+            offset=int_arg(args, "offset", default=0, lo=0),
+            limit=int_arg(args, "limit", default=25, lo=1, hi=100),
+        )
+    else:
+        res = issues.search(from_settings(), args)
     res["issues"] = [_untrusted(i) for i in res["issues"]]
     res["notice"] = NOTICE
     return res
@@ -108,14 +117,18 @@ TOOLS = [
     {
         "name": "redmine_search",
         "description": (
-            "Search Redmine issues. q is a keyword over subject, description and comments; "
-            "'#123' opens issue 123 directly. status: open (default), closed, * (all) or a status id. "
-            "assignee: me, none or a user id. project: id or identifier. sort: e.g. updated_on:desc. "
-            "limit max 100. Read-only."
+            "Search Redmine issues. Preferred: 'query', one expression like "
+            "'assignee:me status:\"In Progress\" updated:<7d login -CSV' (field:value "
+            "filters AND together, comma means OR, leading - negates, bare words are "
+            "keywords; fields: project status tracker priority assignee author version "
+            "category parent done created updated due start closed cf.<name>; dates take "
+            "today/this-week/last-week/<Nd/>Nd/YYYY-MM-DD/a..b, due:overdue). Legacy args "
+            "q/status/assignee/project/tracker still work when query is absent. "
+            "'#123' opens issue 123 directly. sort: e.g. updated_on:desc. limit max 100. Read-only."
         ),
         "inputSchema": _schema(
-            {"q": _STR, "project": _STR, "status": _STR, "assignee": _STR, "tracker": _STR,
-             "sort": _STR, "offset": _INT, "limit": _INT},
+            {"query": _STR, "q": _STR, "project": _STR, "status": _STR, "assignee": _STR,
+             "tracker": _STR, "sort": _STR, "offset": _INT, "limit": _INT},
             [],
         ),
         "handler": h_search,
