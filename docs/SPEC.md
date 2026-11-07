@@ -3,6 +3,7 @@
 - 対象: Kiro Crew App Kit（外部アプリ。Kiro Crew 本体には組み込まない）
 - 配布: OSS / Kiro Crew 公式 App Store（`kirodotdev/KiroCrewApps` への listing request）
 - 目標: Kiroween 2026 への応募（**提出締切 2026-12-04 14:00 PT**。要件は V-13 で確認済み）
+- 検索・一覧・カンバン（F-02〜F-04）は **[SPEC-search-board.md](SPEC-search-board.md) で再設計中**。そちらを優先する
 - 状態: **検証済み・未実装**。Redmine 側は 5.1.12 / 6.1.6 で実機検証済み（[VERIFICATION.md](VERIFICATION.md)）。残る未確認は実装時のスモークテストで潰す
 
 ## v0.2 からの主な変更
