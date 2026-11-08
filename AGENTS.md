@@ -10,22 +10,22 @@ Kiro Crew の外部アプリ「Redmine Board」。**検証済み・未実装**�
 
 ## 検証用 Redmine（Docker）
 
-- `redmine:5.1` → http://localhost:18081、`redmine:6` → http://localhost:18082（admin/redmine123、REST API 有効化済み、170件投入済み）
-- 各環境の API キーは**アプリの外**の `/home/hddwm390/tmp/KiroCrew-app/redmine-board-testenv/env-*.json`。`kirocrew app install` は作業ツリーを丸ごとコピーする（git 対象外のファイルも）ので、鍵をリポジトリ内に置かない
+- `redmine:5.1` → http://localhost:18081、`redmine:6` → http://localhost:18082（ログイン情報は env-*.json、REST API 有効化済み、170件投入済み）
+- 各環境の API キーは**アプリの外**の `../redmine-board-testenv/env-*.json` に置く（git 対象外）。`kirocrew app install` は作業ツリーを丸ごとコピーする（git 対象外のファイルも）ので、鍵をリポジトリ内に置かない
 - 再投入は `python3 testenv/seed.py <base> <admin_key> <out>`、検証の再現は `python3 testenv/verify_redmine.py ../redmine-board-testenv/env-51.json`
 - Kiroween 締切: 2026-12-04 14:00 PT（V-13）
 
 ## テスト
 
 - コアと MCP: `python3 -m unittest discover -s tests`（標準ライブラリだけ。MCP は `python3 -S -I` で起動して依存が無いことも確かめる）
-- backend: `/home/hddwm390/tmp/KiroCrew/.venv/bin/python -m unittest discover -s backend/tests`
+- backend: `<KiroCrew リポジトリのローカルパス>/.venv/bin/python -m unittest discover -s backend/tests`
 - UI: `cd ui && npx tsc --noEmit -p . && npm run build`（`ui/dist/index.mjs` はコミットする）
 
 ## 関連する場所
 
-- Kiro Crew 本体（App Kit のドキュメント）: `/home/hddwm390/tmp/KiroCrew/docs/app-kit/`
-- 参考実装（先行アプリ）: `/home/hddwm390/tmp/KiroCrew-app/for-takt`（Python backend hooks + React UI + 標準ライブラリのみの MCP サーバー）
-- 参考実装（他者のアプリ、ストア掲載済み）: `/home/hddwm390/tmp/KiroCrew-app/kirocrew-app-aidlc`
+- Kiro Crew 本体（App Kit のドキュメント）: `<KiroCrew リポジトリのローカルパス>/docs/app-kit/`
+- 参考実装（先行アプリ）: `../for-takt`（Python backend hooks + React UI + 標準ライブラリのみの MCP サーバー）
+- 参考実装（他者のアプリ、ストア掲載済み）: `../kirocrew-app-aidlc`
 
 ## 進め方の決まり
 

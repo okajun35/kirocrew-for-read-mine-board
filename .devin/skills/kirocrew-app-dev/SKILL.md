@@ -5,13 +5,13 @@ description: Know-how for building, installing, and publishing Kiro Crew externa
 
 # Kiro Crew アプリ開発の知見（for-takt から）
 
-先行アプリ for-takt（`/home/hddwm390/tmp/KiroCrew-app/for-takt`）で実際に動かして確かめたこと。新しいアプリはこの構成をそのまま流用してよい。ここに書いていない仕様は推測せず、Kiro Crew のドキュメントを読むこと。
+先行アプリ for-takt（`../for-takt`）で実際に動かして確かめたこと。新しいアプリはこの構成をそのまま流用してよい。ここに書いていない仕様は推測せず、Kiro Crew のドキュメントを読むこと。
 
 ## 正本の場所
 
-- App Kit のドキュメント: `/home/hddwm390/tmp/KiroCrew/docs/app-kit/`
+- App Kit のドキュメント: `<KiroCrew リポジトリのローカルパス>/docs/app-kit/`
   - `getting-started.md`、`manifest-reference.md`（app.json の全項目）、`api-reference.md`（UI SDK と backend の ctx）、`publishing-guide.md`（ストア掲載）
-- エージェント spec の項目: `/home/hddwm390/tmp/KiroCrew/src/kiro_crew/docs/agent-spec-fields.md`
+- エージェント spec の項目: `<KiroCrew リポジトリのローカルパス>/src/kiro_crew/docs/agent-spec-fields.md`
 - **手元の Kiro Crew は upstream より古いことがある**（2026-11 時点で 202 コミット遅れていた）。仕様の判断や issue の提出の前に `git fetch` して `origin/main` のコードも確認する
 
 ## 構成（for-takt で動作確認済み）
@@ -39,7 +39,7 @@ assets/icon.png           ストア用アイコン（512x512・不透明）
 - 日本語を返すので `json.dumps(..., ensure_ascii=False)`
 - アプリの状態はアプリのデータ領域に置く（`ctx.data_dir` / `get_app_data_dir()`）
 - **第三者アプリの backend hooks はゲートウェイの権限で動くため、利用者の trust 付与が必要。** 付与しないと `Refusing to load third-party app '<name>'` で読み込まれない。付与はダッシュボードの Trusted Apps か、`~/.kiro/crew/config.local.json` の `{"agent": {"apps_trusted": [...], "apps_trusted_local": [...]}}`
-- backend はゲートウェイの venv で動くので `aiohttp` や `PyYAML` が使える。テストは `/home/hddwm390/tmp/KiroCrew/.venv/bin/python -m unittest discover -s backend/tests`
+- backend はゲートウェイの venv で動くので `aiohttp` や `PyYAML` が使える。テストは `<KiroCrew リポジトリのローカルパス>/.venv/bin/python -m unittest discover -s backend/tests`
 
 ## MCP サーバー
 
@@ -111,6 +111,6 @@ kirocrew app update <name> --source <dir>
 
 ## このユーザーの環境
 
-- Kiro Crew 本体: `/home/hddwm390/tmp/KiroCrew`
-- アプリ: `/home/hddwm390/tmp/KiroCrew-app/`（`for-takt`、`redmine-board`、参考用の `kirocrew-app-aidlc`）
+- Kiro Crew 本体: `<KiroCrew リポジトリのローカルパス>`
+- アプリ: `~/tmp/KiroCrew-app/（ご自身の環境に合わせる）`（`for-takt`、`redmine-board`、参考用の `kirocrew-app-aidlc`）
 - 会話は日本語。説明はわかりやすい日本語で、確認していないことは推測だと明記する

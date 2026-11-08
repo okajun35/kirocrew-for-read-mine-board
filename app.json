@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "displayName": "Redmine Board",
   "description": "Unofficial Redmine client: search, list and kanban your Redmine issues inside Kiro Crew, then hand an issue to a Kiro agent that reads it over MCP and posts results back with your approval. REST API only, no Redmine plugin.",
-  "author": "hddwm390",
+  "author": "okajun35",
   "license": "MIT",
   "minKiroCrewVersion": "0.13.0",
   "tags": ["redmine", "issue-tracker", "kanban", "productivity", "developer-tools"],

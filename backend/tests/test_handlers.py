@@ -1,6 +1,6 @@
 """Backend handler tests. Needs aiohttp (the gateway venv):
 
-    /home/hddwm390/tmp/KiroCrew/.venv/bin/python -m unittest discover -s backend/tests
+    <KiroCrew repo>/.venv/bin/python -m unittest discover -s backend/tests
 """
 
 import importlib
