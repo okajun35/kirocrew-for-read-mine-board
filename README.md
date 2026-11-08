@@ -1,5 +1,7 @@
 # Redmine Board for Kiro Crew
 
+[日本語版 README](README.ja.md)
+
 **Unofficial.** Not affiliated with or endorsed by the Redmine project.
 
 Search, list and kanban your Redmine issues inside [Kiro Crew](https://github.com/kirodotdev/KiroCrew), then hand an issue to a Kiro agent. The agent reads the issue over MCP, does the work, and posts the result back to Redmine as a comment — only after you approve the write.
