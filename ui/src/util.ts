@@ -11,7 +11,35 @@ export interface ViewState {
   sort: string
 }
 
-export const DEFAULT_VIEW: ViewState = { expr: '', tab: 'board', sort: 'updated_on:desc' }
+export const MY_TOKEN = 'assignee:me'
+
+// first visit shows the issues assigned to the current user
+export const DEFAULT_VIEW: ViewState = { expr: MY_TOKEN, tab: 'board', sort: 'updated_on:desc' }
+
+const PROJECT_TOKEN = /(?:^|\s)(?:project|プロジェクト):("?)([^\s",]+)\1(?=\s|$)/g
+
+/** The identifier in the first project: token, if any. */
+export function projectOf(expr: string): string | null {
+  PROJECT_TOKEN.lastIndex = 0
+  return PROJECT_TOKEN.exec(expr)?.[2] ?? null
+}
+
+/** Replace every project: token with one for ident (or drop them for null). */
+export function setProject(expr: string, ident: string | null): string {
+  const rest = expr.replace(PROJECT_TOKEN, ' ').replace(/\s{2,}/g, ' ').trim()
+  return ident ? addToken(rest, `project:${ident}`) : rest
+}
+
+/** Whether the expression contains token as a whole word. */
+export function hasToken(expr: string, token: string): boolean {
+  return expr.split(/\s+/).includes(token)
+}
+
+/** Add token if absent, remove every whole-word occurrence if present. */
+export function toggleToken(expr: string, token: string): string {
+  if (!hasToken(expr, token)) return addToken(expr, token)
+  return expr.split(/\s+/).filter((t) => t && t !== token).join(' ')
+}
 
 export function loadViewState(): ViewState {
   try {

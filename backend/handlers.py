@@ -203,6 +203,7 @@ def meta(query):
         "baseUrl": c.base_url,
         "user": issues.current_user(c),
         "projects": issues.list_projects(c),
+        "myProjectIds": issues.my_project_ids(c),
         "statuses": issues.list_statuses(c),
         "trackers": issues.list_trackers(c),
         "priorities": issues.list_priorities(c),
@@ -216,7 +217,8 @@ def meta(query):
 
 @_reader
 def members(query):
-    return {"members": issues.list_members(from_settings(), query.get("project") or "")}
+    # no project: members of the projects the current user belongs to
+    return {"members": issues.members_for(from_settings(), query.get("project") or "")}
 
 
 @_reader

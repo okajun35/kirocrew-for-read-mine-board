@@ -298,8 +298,8 @@ def build_meta(client, parsed):
     project_ref = next((f.values[0] for f in parsed.filters if f.field == "project" and f.values), None)
     proj = project_ref or ""
     for field, (key, loader) in {
-        "assignee": ("users", lambda: _members_for(client, proj)),
-        "author": ("users", lambda: _members_for(client, proj)),
+        "assignee": ("users", lambda: members_for(client, proj)),
+        "author": ("users", lambda: members_for(client, proj)),
         "version": ("versions", lambda: list_versions(client, proj)),
         "category": ("categories", lambda: list_categories(client, proj)),
     }.items():
@@ -316,18 +316,26 @@ def build_meta(client, parsed):
     return meta
 
 
-def _members_for(client, project):
-    """Members of one project, or merged members of up to 15 projects."""
+MAX_MEMBER_PROJECTS = 15
+
+
+def members_for(client, project):
+    """Members of one project, or merged members of the current user's projects.
+
+    Without a project, the candidates come from projects the user belongs to
+    (not the first projects Redmine lists), so unrelated people stay out.
+    """
     if project:
         return list_members(client, project)
     merged = {}
-    for p in list_projects(client)[:15]:
+    for ident in my_project_identifiers(client)[:MAX_MEMBER_PROJECTS]:
         try:
-            for m in list_members(client, p["identifier"]):
+            for m in list_members(client, ident):
                 merged.setdefault(m["id"], m)
         except ToolError:
             continue
-    return list(merged.values())
+    return sorted(merged.values(), key=lambda x: (x["group"], x["name"] or ""))
+
 
 
 # ---------------------------------------------------------------------------
@@ -557,17 +565,48 @@ def current_user(client):
     }
 
 
+def my_project_ids(client):
+    """Ids of projects the current user is a member of (directly or via a group)."""
+    try:
+        u = client.get("/users/current.json", {"include": "memberships"}).get("user") or {}
+    except ToolError:
+        return []
+    out = []
+    for m in u.get("memberships") or []:
+        pid = (m.get("project") or {}).get("id")
+        if pid is not None and pid not in out:
+            out.append(pid)
+    return out
+
+
+def my_project_identifiers(client):
+    mine = set(my_project_ids(client))
+    return [p["identifier"] for p in list_projects(client) if p["id"] in mine]
+
+
+MAX_MEMBERS = 1000
+
+
 def list_members(client, project):
     if not project or not _IDENT.match(project):
         raise ToolError("project must be a project id or identifier")
+    rows, offset = [], 0
     try:
-        res = client.get(f"/projects/{project}/memberships.json", {"limit": MAX_LIMIT})
+        while offset < MAX_MEMBERS:
+            res = client.get(f"/projects/{project}/memberships.json",
+                             {"offset": offset, "limit": MAX_LIMIT})
+            batch = res.get("memberships") or []
+            rows += batch
+            offset += len(batch)
+            total = res.get("total_count")
+            if len(batch) < MAX_LIMIT or (total is not None and offset >= int(total)):
+                break
     except ToolError as e:
         if e.code in ("redmine_forbidden", "not_found"):
             return []
         raise
     seen, out = set(), []
-    for m in res.get("memberships") or []:
+    for m in rows:
         who = m.get("user") or m.get("group")
         if isinstance(who, dict) and who.get("id") not in seen:
             seen.add(who.get("id"))

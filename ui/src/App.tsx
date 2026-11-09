@@ -10,8 +10,8 @@ import SettingsTab from './SettingsTab'
 import { useStrings } from './strings'
 import type { Meta, ProjectOptions, ResultMeta, SavedView, SettingsView } from './types'
 import {
-  API, DEFAULT_VIEW, addToken, errCode, errMessage, loadViewState, qs,
-  removeToken, saveViewState, type ViewState,
+  API, DEFAULT_VIEW, MY_TOKEN, addToken, errCode, errMessage, hasToken, loadViewState, projectOf, qs,
+  removeToken, saveViewState, setProject, toggleToken, type ViewState,
 } from './util'
 
 const queryClient = new QueryClient({
@@ -81,11 +81,11 @@ function Page() {
     staleTime: 30_000,
   })
 
-  // project for scoped suggestions (first project: token, else first project)
+  // project for scoped suggestions: only the project: token. Without one,
+  // suggest members of the user's own projects instead of an arbitrary project.
   const projectRef = useMemo(() => {
-    const m = /(?:^|\s)(?:project|プロジェクト):("?)([^\s",]+)\1/.exec(expr)
-    const ident = m?.[2]
-    return meta?.projects.find((p) => p.identifier === ident || String(p.id) === ident) ?? meta?.projects[0]
+    const ident = projectOf(expr)
+    return ident ? meta?.projects.find((p) => p.identifier === ident || String(p.id) === ident) : undefined
   }, [meta, expr])
   const optionsQ = useQuery({
     queryKey: ['options', projectRef?.identifier],
@@ -93,6 +93,28 @@ function Page() {
     enabled: configured && !!projectRef,
     staleTime: 5 * 60_000,
   })
+  const myMembersQ = useQuery({
+    queryKey: ['members', 'mine'],
+    queryFn: () => api.get<{ members: ProjectOptions['members'] }>(`${API}/members`),
+    enabled: configured && !projectRef,
+    staleTime: 5 * 60_000,
+  })
+  const suggestOptions: ProjectOptions | undefined = projectRef
+    ? optionsQ.data
+    : myMembersQ.data && { members: myMembersQ.data.members, versions: [], categories: [], customFields: [] }
+
+  const myProjectIds = useMemo(() => new Set(meta?.myProjectIds ?? []), [meta])
+  const projectChoices = useMemo(() => {
+    const all = meta?.projects ?? []
+    return {
+      mine: all.filter((p) => myProjectIds.has(p.id)),
+      others: all.filter((p) => !myProjectIds.has(p.id)),
+    }
+  }, [meta, myProjectIds])
+  const setExprNow = (next: string) => {
+    setDraft(next)
+    applyExpr(next)
+  }
 
   const addFilterToken = useCallback((token: string) => {
     const next = addToken(expr, token)
@@ -209,12 +231,45 @@ function Page() {
         ) : (
           <>
             {metaQ.error ? <ErrorNotice message={em(metaQ.error)} /> : null}
+            <div className="flex items-center gap-2" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+              <Btn
+                type="button"
+                primary={hasToken(expr, MY_TOKEN)}
+                aria-pressed={hasToken(expr, MY_TOKEN)}
+                title={S.mineHint}
+                onClick={() => setExprNow(toggleToken(expr, MY_TOKEN))}
+              >
+                {S.mineOnly}
+              </Btn>
+              <select
+                aria-label={S.projectFilter}
+                value={projectRef?.identifier ?? ''}
+                onChange={(e) => setExprNow(setProject(expr, e.target.value || null))}
+                style={{ fontSize: 13, padding: '4px 6px', maxWidth: 260 }}
+              >
+                <option value="">{S.projectAll}</option>
+                {projectChoices.mine.length ? (
+                  <optgroup label={S.projectMine}>
+                    {projectChoices.mine.map((p) => (
+                      <option key={p.id} value={p.identifier}>{p.name}</option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {projectChoices.others.length ? (
+                  <optgroup label={S.projectOthers}>
+                    {projectChoices.others.map((p) => (
+                      <option key={p.id} value={p.identifier}>{p.name}</option>
+                    ))}
+                  </optgroup>
+                ) : null}
+              </select>
+            </div>
             <SearchBar
               draft={draft}
               setDraft={setDraft}
               onSubmit={submit}
               meta={meta}
-              options={optionsQ.data}
+              options={suggestOptions}
               chips={resultMeta?.chips ?? []}
               errors={resultMeta?.errors ?? []}
               onEditChip={editChip}

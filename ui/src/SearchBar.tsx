@@ -6,11 +6,15 @@ import { addToken, box, qv } from './util'
 
 /** Value candidates per canonical field key. */
 function valueMap(meta: Meta | undefined, opts: ProjectOptions | undefined): Record<string, string[]> {
+  const mine = new Set(meta?.myProjectIds ?? [])
   const m: Record<string, string[]> = {
     status: ['open', 'closed', '*', ...(meta?.statuses ?? []).map((s) => s.name)],
     tracker: (meta?.trackers ?? []).map((t) => t.name),
     priority: (meta?.priorities ?? []).map((p) => p.name),
-    project: (meta?.projects ?? []).map((p) => p.identifier),
+    // the user's own projects first
+    project: [...(meta?.projects ?? [])]
+      .sort((a, b) => Number(!mine.has(a.id)) - Number(!mine.has(b.id)))
+      .map((p) => p.identifier),
     assignee: ['me', 'none', ...(opts?.members ?? []).map((x) => x.name)],
     author: ['me', 'none', ...(opts?.members ?? []).map((x) => x.name)],
     version: (opts?.versions ?? []).map((v) => v.name),

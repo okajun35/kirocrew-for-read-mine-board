@@ -89,6 +89,8 @@ export interface Meta {
   baseUrl: string
   user: { id: number; login: string; name: string; admin: boolean }
   projects: { id: number; identifier: string; name: string; parentId: number | null }[]
+  /** projects the current user belongs to (absent on older backends) */
+  myProjectIds?: number[]
   statuses: StatusRef[]
   trackers: Ref[]
   priorities: Ref[]
