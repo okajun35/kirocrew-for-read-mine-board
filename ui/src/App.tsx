@@ -239,7 +239,6 @@ function Page() {
                 setExpr={setExprNow}
                 meta={meta}
                 members={suggestOptions?.members ?? []}
-                projects={projectChoices}
                 views={viewsQ.data?.views ?? []}
                 onApplyView={applyView}
                 onSaveView={saveView}

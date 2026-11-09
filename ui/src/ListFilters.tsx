@@ -4,15 +4,14 @@
 import { useAppApi } from '@kirocrew/app-sdk'
 import { Btn, Input } from '@kirocrew/app-sdk/ui'
 import { useQueries } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import ProjectPicker from './ProjectPicker'
 import { useStrings } from './strings'
 import type { Meta, ProjectOptions, SavedView, SearchResult } from './types'
 import {
   API, LIST_TABS, fieldValue, keywordOf, projectOf, qs, setField, setKeyword, setProject,
   tabOf, withTab, type ListTab,
 } from './util'
-
-type Project = Meta['projects'][number]
 
 const selectStyle = { fontSize: 13, padding: '4px 6px', maxWidth: 240 }
 
@@ -21,7 +20,6 @@ export default function ListFilters({
   setExpr,
   meta,
   members,
-  projects,
   views,
   onApplyView,
   onSaveView,
@@ -32,7 +30,6 @@ export default function ListFilters({
   setExpr: (next: string) => void
   meta: Meta | undefined
   members: ProjectOptions['members']
-  projects: { mine: Project[]; others: Project[] }
   views: SavedView[]
   onApplyView: (v: SavedView) => void
   onSaveView: (name: string) => void
@@ -42,6 +39,7 @@ export default function ListFilters({
   const api = useAppApi()
   const S = useStrings()
   const tab = tabOf(expr)
+  const myIds = useMemo(() => new Set(meta?.myProjectIds ?? []), [meta])
 
   // tab counts: one limit=1 query per tab, same filters as the list
   const counts = useQueries({
@@ -97,37 +95,14 @@ export default function ListFilters({
       </div>
 
       <div className="flex items-center gap-2" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
-        <select
-          aria-label={S.projectFilter}
-          value={project ?? ''}
-          onChange={(e) => setExpr(setProject(setField(expr, 'subproject', null), e.target.value || null))}
-          style={selectStyle}
-        >
-          <option value="">{S.projectAll}</option>
-          {project && !meta?.projects.some((p) => p.identifier === project) ? (
-            <option value={project}>{project}</option>
-          ) : null}
-          {projects.mine.length ? (
-            <optgroup label={S.projectMine}>
-              {projects.mine.map((p) => <option key={p.id} value={p.identifier}>{p.name}</option>)}
-            </optgroup>
-          ) : null}
-          {projects.others.length ? (
-            <optgroup label={S.projectOthers}>
-              {projects.others.map((p) => <option key={p.id} value={p.identifier}>{p.name}</option>)}
-            </optgroup>
-          ) : null}
-        </select>
-        {project ? (
-          <label className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <input
-              type="checkbox"
-              checked={!noSubprojects}
-              onChange={(e) => setExpr(setField(expr, 'subproject', e.target.checked ? null : 'none'))}
-            />
-            {S.includeSubprojects}
-          </label>
-        ) : null}
+        <ProjectPicker
+          projects={meta?.projects ?? []}
+          myIds={myIds}
+          value={project}
+          onChange={(ident) => setExpr(setProject(setField(expr, 'subproject', null), ident))}
+          includeSubprojects={!noSubprojects}
+          onIncludeSubprojects={(v) => setExpr(setField(expr, 'subproject', v ? null : 'none'))}
+        />
 
         <select
           aria-label={S.filterStatus}
