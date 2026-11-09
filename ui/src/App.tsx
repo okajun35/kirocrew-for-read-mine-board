@@ -5,13 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import IssueDetail from './IssueDetail'
 import IssueTable from './IssueTable'
 import Kanban from './Kanban'
+import ListFilters from './ListFilters'
 import SearchBar from './SearchBar'
 import SettingsTab from './SettingsTab'
 import { useStrings } from './strings'
 import type { Meta, ProjectOptions, ResultMeta, SavedView, SettingsView } from './types'
 import {
   API, DEFAULT_VIEW, MY_TOKEN, addToken, errCode, errMessage, hasToken, loadViewState, projectOf, qs,
-  removeToken, saveViewState, setProject, toggleToken, type ViewState,
+  removeToken, saveViewState, setField, setProject, tabOf, toggleToken, type ViewState,
 } from './util'
 
 const queryClient = new QueryClient({
@@ -31,6 +32,7 @@ function Page() {
   const [selected, setSelected] = useState<number | null>(null)
   const [resultMeta, setResultMeta] = useState<ResultMeta | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement | null>(null)
   const visibleIds = useRef<number[]>([])
 
@@ -231,6 +233,21 @@ function Page() {
         ) : (
           <>
             {metaQ.error ? <ErrorNotice message={em(metaQ.error)} /> : null}
+            {tab === 'list' ? (
+              <ListFilters
+                expr={expr}
+                setExpr={setExprNow}
+                meta={meta}
+                members={suggestOptions?.members ?? []}
+                projects={projectChoices}
+                views={viewsQ.data?.views ?? []}
+                onApplyView={applyView}
+                onSaveView={saveView}
+                advancedOpen={advancedOpen}
+                onToggleAdvanced={() => setAdvancedOpen((o) => !o)}
+              />
+            ) : null}
+            {tab === 'list' ? null : (
             <div className="flex items-center gap-2" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
               <Btn
                 type="button"
@@ -264,6 +281,8 @@ function Page() {
                 ) : null}
               </select>
             </div>
+            )}
+            {tab === 'list' && !advancedOpen ? null : (
             <SearchBar
               draft={draft}
               setDraft={setDraft}
@@ -280,6 +299,7 @@ function Page() {
               onDeleteView={deleteView}
               inputRef={searchRef}
             />
+            )}
             {resultMeta?.note === 'partial' || resultMeta?.note === 'partial_negation' ? (
               <p className="text-sm text-muted" style={{ marginBottom: 8 }}>{S.partialNote}</p>
             ) : null}
@@ -304,6 +324,8 @@ function Page() {
                     onSelect={setSelected}
                     onVisible={onVisible}
                     onResult={onResult}
+                    showAuthor={tabOf(expr) === 'mine'}
+                    onSetFilter={(field, value) => setExprNow(setField(expr, field, value))}
                   />
                 )}
               </div>

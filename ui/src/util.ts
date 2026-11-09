@@ -35,6 +35,99 @@ export function hasToken(expr: string, token: string): boolean {
   return expr.split(/\s+/).includes(token)
 }
 
+/** Split an expression into raw tokens, keeping "quoted values" together. */
+export function splitTokens(expr: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let inQ = false
+  for (const ch of expr) {
+    if (ch === '"') {
+      inQ = !inQ
+      cur += ch
+    } else if (/\s/.test(ch) && !inQ) {
+      if (cur) out.push(cur)
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  if (cur) out.push(cur)
+  return out
+}
+
+const FIELD_TOKEN = /^-?[^\s:"]+:/
+
+/** The free-text (keyword) part of an expression. */
+export function keywordOf(expr: string): string {
+  return splitTokens(expr).filter((t) => !FIELD_TOKEN.test(t)).join(' ')
+}
+
+/** Replace the free-text part, keeping every field token. */
+export function setKeyword(expr: string, text: string): string {
+  const fields = splitTokens(expr).filter((t) => FIELD_TOKEN.test(t))
+  return [...fields, ...splitTokens(text)].join(' ')
+}
+
+/** Value of the first non-negated field:value token (canonical key only). */
+export function fieldValue(expr: string, field: string): string | null {
+  const t = splitTokens(expr).find((x) => x.startsWith(`${field}:`))
+  return t ? t.slice(field.length + 1).replace(/^"|"$/g, '') : null
+}
+
+/** Drop every field:… and -field:… token, then add field:value (if any). */
+export function setField(expr: string, field: string, value: string | null): string {
+  const rest = splitTokens(expr).filter((t) => !t.startsWith(`${field}:`) && !t.startsWith(`-${field}:`))
+  const e = rest.join(' ')
+  return value ? addToken(e, `${field}:${qv(value)}`) : e
+}
+
+/** List tabs: each is a fixed set of tokens on top of the user's filters. */
+export type ListTab = 'mine' | 'requested' | 'overdue' | 'all'
+export const LIST_TABS: ListTab[] = ['mine', 'requested', 'overdue', 'all']
+const TAB_TOKENS: Record<ListTab, string[]> = {
+  mine: ['assignee:me'],
+  requested: ['author:me', '-assignee:me'],
+  overdue: ['due:overdue'],
+  all: [],
+}
+const ALL_TAB_TOKENS = new Set(Object.values(TAB_TOKENS).flat())
+
+export function tabOf(expr: string): ListTab {
+  const t = new Set(splitTokens(expr))
+  if (t.has('author:me') && t.has('-assignee:me')) return 'requested'
+  if (t.has('assignee:me')) return 'mine'
+  if (t.has('due:overdue')) return 'overdue'
+  return 'all'
+}
+
+/** Switch tab: remove every tab token, then add the new tab's tokens. */
+export function withTab(expr: string, tab: ListTab): string {
+  // the tab's fields (e.g. assignee) win over the same field picked elsewhere
+  const fields = TAB_TOKENS[tab].map((t) => t.replace(/^-/, '').split(':')[0])
+  const clashes = (t: string) => fields.some((f) => t.startsWith(`${f}:`) || t.startsWith(`-${f}:`))
+  const rest = splitTokens(expr).filter((t) => !ALL_TAB_TOKENS.has(t) && !clashes(t))
+  return [...TAB_TOKENS[tab], ...rest].join(' ')
+}
+
+/**
+ * Shorten project names by dropping "_"-separated parts that every listed
+ * project shares, e.g. 66_02_XXX_アセット_プロジェクト_Ⅰ期改良 -> 02_Ⅰ期改良.
+ * Returns the full names unchanged when fewer than two projects are listed.
+ */
+export function shortProjectNames(names: string[]): Map<string, string> {
+  const uniq = [...new Set(names)]
+  const out = new Map(uniq.map((n) => [n, n]))
+  if (uniq.length < 2) return out
+  const parts = uniq.map((n) => n.split('_'))
+  const shared = new Set(parts[0].filter((p) => parts.every((ps) => ps.includes(p))))
+  if (!shared.size) return out
+  uniq.forEach((n, i) => {
+    const kept = parts[i].filter((p) => !shared.has(p)).join('_')
+    if (kept) out.set(n, kept)
+  })
+  return out
+}
+
 /** Add token if absent, remove every whole-word occurrence if present. */
 export function toggleToken(expr: string, token: string): string {
   if (!hasToken(expr, token)) return addToken(expr, token)

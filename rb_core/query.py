@@ -24,6 +24,8 @@ from .util import ToolError
 # canonical field -> (Redmine filter name, kind, aliases)
 FIELDS = {
     "project": ("project_id", "project", ("project", "プロジェクト")),
+    # subproject:none -> subproject_id=!* (only the selected project, no children)
+    "subproject": ("subproject_id", "list", ("subproject", "子プロジェクト")),
     "status": ("status_id", "status", ("status", "状態", "ステータス")),
     "tracker": ("tracker_id", "list", ("tracker", "トラッカー", "種類")),
     "priority": ("priority_id", "list", ("priority", "優先度", "優先")),
