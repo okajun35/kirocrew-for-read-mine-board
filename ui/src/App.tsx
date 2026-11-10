@@ -6,13 +6,14 @@ import IssueDetail from './IssueDetail'
 import IssueTable from './IssueTable'
 import Kanban from './Kanban'
 import ListFilters from './ListFilters'
+import VersionBar from './VersionBar'
 import SearchBar from './SearchBar'
 import SettingsTab from './SettingsTab'
 import { useStrings } from './strings'
 import type { Meta, ProjectOptions, ResultMeta, SavedView, SettingsView } from './types'
 import {
-  API, DEFAULT_VIEW, MY_TOKEN, addToken, errCode, errMessage, hasToken, loadViewState, projectOf, qs,
-  removeToken, saveViewState, setField, setProject, tabOf, toggleToken, type ViewState,
+  API, DEFAULT_VIEW, addToken, errCode, errMessage, loadViewState, projectOf, qs,
+  removeToken, saveViewState, setField, tabOf, type ViewState,
 } from './util'
 
 const queryClient = new QueryClient({
@@ -105,14 +106,6 @@ function Page() {
     ? optionsQ.data
     : myMembersQ.data && { members: myMembersQ.data.members, versions: [], categories: [], customFields: [] }
 
-  const myProjectIds = useMemo(() => new Set(meta?.myProjectIds ?? []), [meta])
-  const projectChoices = useMemo(() => {
-    const all = meta?.projects ?? []
-    return {
-      mine: all.filter((p) => myProjectIds.has(p.id)),
-      others: all.filter((p) => !myProjectIds.has(p.id)),
-    }
-  }, [meta, myProjectIds])
   const setExprNow = (next: string) => {
     setDraft(next)
     applyExpr(next)
@@ -233,55 +226,26 @@ function Page() {
         ) : (
           <>
             {metaQ.error ? <ErrorNotice message={em(metaQ.error)} /> : null}
-            {tab === 'list' ? (
-              <ListFilters
+            <ListFilters
+              expr={expr}
+              setExpr={setExprNow}
+              meta={meta}
+              members={suggestOptions?.members ?? []}
+              views={viewsQ.data?.views ?? []}
+              onApplyView={applyView}
+              onSaveView={saveView}
+              advancedOpen={advancedOpen}
+              onToggleAdvanced={() => setAdvancedOpen((o) => !o)}
+            />
+            {tab === 'board' ? (
+              <VersionBar
+                project={projectRef?.identifier ?? null}
+                versions={projectRef ? optionsQ.data?.versions ?? [] : []}
                 expr={expr}
                 setExpr={setExprNow}
-                meta={meta}
-                members={suggestOptions?.members ?? []}
-                views={viewsQ.data?.views ?? []}
-                onApplyView={applyView}
-                onSaveView={saveView}
-                advancedOpen={advancedOpen}
-                onToggleAdvanced={() => setAdvancedOpen((o) => !o)}
               />
             ) : null}
-            {tab === 'list' ? null : (
-            <div className="flex items-center gap-2" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
-              <Btn
-                type="button"
-                primary={hasToken(expr, MY_TOKEN)}
-                aria-pressed={hasToken(expr, MY_TOKEN)}
-                title={S.mineHint}
-                onClick={() => setExprNow(toggleToken(expr, MY_TOKEN))}
-              >
-                {S.mineOnly}
-              </Btn>
-              <select
-                aria-label={S.projectFilter}
-                value={projectRef?.identifier ?? ''}
-                onChange={(e) => setExprNow(setProject(expr, e.target.value || null))}
-                style={{ fontSize: 13, padding: '4px 6px', maxWidth: 260 }}
-              >
-                <option value="">{S.projectAll}</option>
-                {projectChoices.mine.length ? (
-                  <optgroup label={S.projectMine}>
-                    {projectChoices.mine.map((p) => (
-                      <option key={p.id} value={p.identifier}>{p.name}</option>
-                    ))}
-                  </optgroup>
-                ) : null}
-                {projectChoices.others.length ? (
-                  <optgroup label={S.projectOthers}>
-                    {projectChoices.others.map((p) => (
-                      <option key={p.id} value={p.identifier}>{p.name}</option>
-                    ))}
-                  </optgroup>
-                ) : null}
-              </select>
-            </div>
-            )}
-            {tab === 'list' && !advancedOpen ? null : (
+            {!advancedOpen ? null : (
             <SearchBar
               draft={draft}
               setDraft={setDraft}
@@ -313,6 +277,8 @@ function Page() {
                     onAddToken={addFilterToken}
                     onVisible={onVisible}
                     onResult={onResult}
+                    meta={meta}
+                    stageMap={settingsQ.data?.kanbanStages ?? {}}
                   />
                 ) : (
                   <IssueTable

@@ -238,8 +238,28 @@ def list_versions(client, project):
         if e.code in ("redmine_forbidden", "not_found"):
             return []
         raise
-    return [{"id": v.get("id"), "name": v.get("name"), "status": v.get("status")}
+    return [{"id": v.get("id"), "name": v.get("name"), "status": v.get("status"),
+             "dueDate": v.get("due_date") or v.get("effective_date")}
             for v in res.get("versions") or []]
+
+
+def version_progress(client, version_id):
+    """A version (milestone) with its issue counts: all and closed."""
+    vid = int(version_id)
+    v = client.get(f"/versions/{vid}.json").get("version") or {}
+
+    def count(status):
+        res = client.get("/issues.json", {"fixed_version_id": vid, "status_id": status, "limit": 1})
+        return int(res.get("total_count") or 0)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        total, closed = pool.map(count, ("*", "c"))
+    return {
+        "id": v.get("id"), "name": v.get("name"), "status": v.get("status"),
+        "dueDate": v.get("due_date") or v.get("effective_date"),
+        "projectId": (v.get("project") or {}).get("id"),
+        "total": total, "closed": closed,
+    }
 
 
 def list_categories(client, project):
@@ -491,32 +511,140 @@ def search_expr(client, expr, sort="updated_on:desc", offset=0, limit=25):
     return out
 
 
-def board_expr(client, expr, per_column=25, status_id=None, sort="updated_on:desc"):
-    """Board columns over the same expression (columns = statuses)."""
+BOARD_AXES = ("status", "stage", "assignee")
+MAX_ASSIGNEE_ISSUES = 500
+
+
+def stage_columns(statuses, mapping):
+    """Group statuses into the fixed stages (settings.STAGE_KEYS).
+
+    ``mapping`` is {status id (str): stage key}. Unmapped statuses: closed ->
+    done; the first open status -> todo (unless some status is mapped to todo
+    explicitly); every other open status -> doing.
+    """
+    known = {s["id"] for s in statuses}
+    mapping = {
+        int(k): v for k, v in (mapping or {}).items()
+        if str(k).isdigit() and int(k) in known and v in settings.STAGE_KEYS
+    }
+    explicit_todo = "todo" in mapping.values()
+    first_open = next((s["id"] for s in statuses if not s["isClosed"]), None)
+    out = {k: [] for k in settings.STAGE_KEYS}
+    for s in statuses:
+        key = mapping.get(s["id"])
+        if key is None:
+            if s["isClosed"]:
+                key = "done"
+            elif s["id"] == first_open and not explicit_todo:
+                key = "todo"
+            else:
+                key = "doing"
+        out[key].append(s["id"])
+    return [{"key": k, "statusIds": out[k]} for k in settings.STAGE_KEYS]
+
+
+def _with_status(params, ids):
+    """Add a status filter without mixing f[] and direct params (V-15)."""
+    p = dict(params)
+    ids = [str(i) for i in ids]
+    if "f[]" in p or len(ids) != 1:
+        p["f[]"] = [f for f in (p.get("f[]") or []) if f != "status_id"] + ["status_id"]
+        p["op[status_id]"] = "="
+        p["v[status_id][]"] = ids
+    else:
+        p["status_id"] = ids[0]
+    return p
+
+
+def _current_user_id(client):
+    return _meta_get(client, "me", lambda: current_user(client)).get("id")
+
+
+def board_expr(client, expr, per_column=25, status_id=None, sort="updated_on:desc", axis="status"):
+    """Board columns over the same expression.
+
+    axis: 'status' (one column per status), 'stage' (statuses grouped into
+    the fixed stages) or 'assignee' (one column per assignee who has issues).
+    """
+    if axis not in BOARD_AXES:
+        raise ToolError(f"axis must be one of {', '.join(BOARD_AXES)}", code="bad_request")
     parsed = qmod.parse(expr or "")
-    statuses = list_statuses(client)
-    chosen = settings.view().get("kanbanStatusIds") or []
     meta = build_meta(client, parsed)
-    plan = qmod.build_params(parsed, meta)
+    sort_value = qmod.sort_param(sort)
+    if axis == "assignee":
+        return _board_by_assignee(client, parsed, meta, per_column, sort_value)
+
+    statuses = list_statuses(client)
+    plan = qmod.build_params(parsed, meta, force_f=axis == "stage")
     plan.params = _strip_status(plan.params)
-    columns = _status_columns(parsed, statuses, chosen)
-    if status_id is not None:
-        columns = [s for s in columns if s["id"] == int(status_id)]
     params, note = _plan_params(client, plan, parsed.terms)
 
+    if axis == "stage":
+        allowed = {s["id"] for s in _status_columns(parsed, statuses, [])}
+        stage_map = settings.view().get("kanbanStages") or {}
+        columns = [
+            {"key": st["key"], "statusIds": [i for i in st["statusIds"] if i in allowed]}
+            for st in stage_columns(statuses, stage_map)
+        ]
+    else:
+        chosen = settings.view().get("kanbanStatusIds") or []
+        columns = [{"key": f"status:{s['id']}", "status": s, "statusIds": [s["id"]]}
+                   for s in _status_columns(parsed, statuses, chosen)]
+        if status_id is not None:
+            columns = [c for c in columns if c["status"]["id"] == int(status_id)]
+
     def fetch(col):
-        if params is None:
-            return {"status": col, "issues": [], "total": 0}
+        if params is None or not col["statusIds"]:
+            return {**col, "issues": [], "total": 0}
         res = client.get("/issues.json", {
-            **params, "status_id": col["id"], "limit": per_column,
-            "sort": qmod.sort_param(sort)})
-        return {"status": col,
+            **_with_status(params, col["statusIds"]), "limit": per_column, "sort": sort_value})
+        return {**col,
                 "issues": [summary(client, it) for it in res.get("issues") or []],
                 "total": int(res.get("total_count") or 0)}
 
     with ThreadPoolExecutor(max_workers=min(6, max(1, len(columns)))) as pool:
         cols = list(pool.map(fetch, columns)) if columns else []
-    out = {"columns": cols, "perColumn": per_column,
+    out = {"axis": axis, "columns": cols, "perColumn": per_column,
+           "chips": parsed.chips(), "errors": plan.errors}
+    if note:
+        out["note"] = note
+    return out
+
+
+def _board_by_assignee(client, parsed, meta, per_column, sort_value):
+    """Redmine has no group-by: fetch up to MAX_ASSIGNEE_ISSUES and group here."""
+    plan = qmod.build_params(parsed, meta)
+    params, note = _plan_params(client, plan, parsed.terms)
+    rows, total = [], 0
+    if params is not None:
+        offset = 0
+        while offset < MAX_ASSIGNEE_ISSUES:
+            res = client.get("/issues.json", {**params, "offset": offset, "limit": MAX_LIMIT, "sort": sort_value})
+            batch = res.get("issues") or []
+            total = int(res.get("total_count") or 0)
+            rows += batch
+            offset += len(batch)
+            if not batch or offset >= total:
+                break
+    groups = {}
+    for it in rows:
+        who = it.get("assigned_to") or None
+        key = f"user:{who['id']}" if who else "none"
+        g = groups.setdefault(key, {"key": key, "name": who["name"] if who else None,
+                                    "assigneeId": who["id"] if who else None, "rows": []})
+        g["rows"].append(it)
+    me = _current_user_id(client)
+
+    def order(g):
+        return (g["assigneeId"] is None, g["assigneeId"] != me, -len(g["rows"]), g["name"] or "")
+
+    cols = [
+        {"key": g["key"], "name": g["name"], "assigneeId": g["assigneeId"],
+         "issues": [summary(client, it) for it in g["rows"][:per_column]], "total": len(g["rows"])}
+        for g in sorted(groups.values(), key=order)
+    ]
+    out = {"axis": "assignee", "columns": cols, "perColumn": per_column,
+           "truncated": total > len(rows), "totalIssues": total,
            "chips": parsed.chips(), "errors": plan.errors}
     if note:
         out["note"] = note
@@ -684,6 +812,24 @@ def update_status(client, issue_id, status_id, notes=None):
             "Redmine accepted the request but did not change the status (workflow); "
             "any note was still recorded",
             code="transition_not_applied",
+        )
+    return {"ok": True, "issue": summary_from_detail(after)}
+
+
+def update_assignee(client, issue_id, assignee_id):
+    """Change (or clear, with None) the assignee, then re-read to confirm.
+
+    The workflow can make the assignee read-only for a role; Redmine then
+    accepts the PUT and silently keeps the old value.
+    """
+    issue_id = int(issue_id)
+    target = None if assignee_id in (None, "", "none") else int(assignee_id)
+    client.put(f"/issues/{issue_id}.json", {"issue": {"assigned_to_id": "" if target is None else target}})
+    after = get_issue(client, issue_id)
+    if (after.get("assignedTo") or {}).get("id") != target:
+        raise ToolError(
+            "Redmine accepted the request but did not change the assignee (workflow or permissions)",
+            code="assignee_not_applied",
         )
     return {"ok": True, "issue": summary_from_detail(after)}
 

@@ -163,6 +163,7 @@ def save_settings(body):
         base_url=_optional_str(body, "baseUrl"),
         api_key=_optional_str(body, "apiKey"),
         kanban_status_ids=body.get("kanbanStatusIds"),
+        kanban_stages=body.get("kanbanStages"),
     )
 
 
@@ -258,7 +259,14 @@ def board(query):
         per_column=int_arg(query, "perColumn", default=30, lo=1, hi=100),
         status_id=int(status_id) if status_id else None,
         sort=query.get("sort") or "updated_on:desc",
+        axis=query.get("axis") or "status",
     )
+
+
+@_reader
+def version(query):
+    """A version (milestone) with all/closed issue counts."""
+    return issues.version_progress(from_settings(), int_arg(query, "id", required=True, lo=1))
 
 
 @_reader
@@ -282,6 +290,15 @@ def update_status(body):
         int_arg(body, "id", required=True, lo=1),
         int_arg(body, "statusId", required=True, lo=1),
     )
+
+
+@_writer("redmine-board.issue.assignee")
+def update_assignee(body):
+    """Board drop onto an assignee column; null clears the assignee."""
+    raw = body.get("assigneeId")
+    if raw is not None and (isinstance(raw, bool) or not isinstance(raw, int) or raw < 1):
+        raise ToolError("assigneeId must be a positive integer or null", code="bad_request")
+    return issues.update_assignee(from_settings(), int_arg(body, "id", required=True, lo=1), raw)
 
 
 @_writer("redmine-board.issue.comment")

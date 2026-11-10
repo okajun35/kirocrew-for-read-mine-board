@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useStrings } from './strings'
 import type { Meta, SettingsView } from './types'
-import { API, errCode, errMessage } from './util'
+import { API, STAGE_KEYS, errCode, errMessage, stageOfStatuses } from './util'
 
 type TestResult = { ok: boolean; user: { name: string; login: string }; capabilities: { anySearchable: boolean } }
 
@@ -15,14 +15,14 @@ export default function SettingsTab({ settings, meta }: { settings: SettingsView
   const [url, setUrl] = useState('')
   const [key, setKey] = useState('')
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
-  const [columns, setColumns] = useState<number[]>([])
+  const [stages, setStages] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (settings) {
       setUrl(settings.baseUrl)
-      setColumns(settings.kanbanStatusIds)
+      setStages(settings.kanbanStages ?? {})
     }
-  }, [settings?.baseUrl, settings?.kanbanStatusIds.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [settings?.baseUrl, JSON.stringify(settings?.kanbanStages ?? {})]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fail = (e: unknown) =>
     setNotice({ ok: false, text: errCode(e) === 'owner_only' ? S.ownerOnly : errMessage(e, S.errorFor, S.errorGeneric) })
@@ -49,8 +49,17 @@ export default function SettingsTab({ settings, meta }: { settings: SettingsView
   })
 
   const insecure = url.trim().startsWith('http://')
-  const toggle = (id: number) =>
-    setColumns((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]))
+  const effective = stageOfStatuses(meta?.statuses ?? [], stages)
+  const stageLabel: Record<string, string> = {
+    todo: S.stageTodo, doing: S.stageDoing, review: S.stageReview, done: S.stageDone,
+  }
+  const setStage = (id: number, v: string) =>
+    setStages((m) => {
+      const n = { ...m }
+      if (v) n[String(id)] = v
+      else delete n[String(id)]
+      return n
+    })
 
   return (
     <div className="flex flex-col gap-4" style={{ maxWidth: 760 }}>
@@ -101,19 +110,30 @@ export default function SettingsTab({ settings, meta }: { settings: SettingsView
 
       {meta ? (
         <Card>
-          <CardTitle>{S.settingsKanban}</CardTitle>
-          <p className="text-sm text-muted" style={{ marginBottom: 8 }}>{S.settingsKanbanHint}</p>
-          <div className="flex gap-2" style={{ flexWrap: 'wrap', marginBottom: 10 }}>
-            {meta.statuses.map((s) => (
-              <label key={s.id} className="text-sm flex items-center gap-2" style={{ cursor: 'pointer' }}>
-                <input type="checkbox" checked={columns.includes(s.id)} onChange={() => toggle(s.id)} />
-                {s.name}
-                {columns.includes(s.id) ? <span className="text-muted">({columns.indexOf(s.id) + 1})</span> : null}
-              </label>
-            ))}
-          </div>
-          <Btn disabled={save.isPending} onClick={() => save.mutate({ kanbanStatusIds: columns })}>
-            {S.settingsKanbanSave}
+          <CardTitle>{S.settingsStages}</CardTitle>
+          <p className="text-sm text-muted" style={{ marginBottom: 8 }}>{S.settingsStagesHint}</p>
+          <table style={{ fontSize: 13, borderCollapse: 'collapse', marginBottom: 10 }}>
+            <tbody>
+              {meta.statuses.map((st) => (
+                <tr key={st.id}>
+                  <td style={{ padding: '3px 12px 3px 0' }}>{st.isClosed ? `✓ ${st.name}` : st.name}</td>
+                  <td style={{ padding: 3 }}>
+                    <select
+                      aria-label={st.name}
+                      value={stages[String(st.id)] ?? ''}
+                      onChange={(e) => setStage(st.id, e.target.value)}
+                      style={{ fontSize: 13, padding: '2px 6px' }}
+                    >
+                      <option value="">{`${S.settingsStagesDefault} ${stageLabel[effective.get(st.id) ?? 'doing']}`}</option>
+                      {STAGE_KEYS.map((k) => <option key={k} value={k}>{stageLabel[k]}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Btn disabled={save.isPending} onClick={() => save.mutate({ kanbanStages: stages })}>
+            {S.settingsStagesSave}
           </Btn>
         </Card>
       ) : null}

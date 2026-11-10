@@ -273,3 +273,63 @@ export function fieldToken(field: string, value: string | null | undefined, nega
 }
 
 export type { SavedView }
+
+// ---------------------------------------------------------------------------
+// board: stages and axis
+// ---------------------------------------------------------------------------
+
+export const STAGE_KEYS = ['todo', 'doing', 'review', 'done'] as const
+type Stage = (typeof STAGE_KEYS)[number]
+
+/**
+ * Stage of each status, same rules as rb_core.issues.stage_columns:
+ * mapped -> that stage; unmapped closed -> done; the first open status ->
+ * todo unless something is mapped to todo; other open -> doing.
+ */
+export function stageOfStatuses(
+  statuses: { id: number; isClosed: boolean }[],
+  mapping: Record<string, string>,
+): Map<number, Stage> {
+  const known = new Set(statuses.map((s) => s.id))
+  const m = new Map<number, Stage>()
+  for (const [k, v] of Object.entries(mapping)) {
+    if (known.has(Number(k)) && (STAGE_KEYS as readonly string[]).includes(v)) m.set(Number(k), v as Stage)
+  }
+  const explicitTodo = [...m.values()].includes('todo')
+  const firstOpen = statuses.find((s) => !s.isClosed)?.id
+  const out = new Map<number, Stage>()
+  for (const s of statuses) {
+    out.set(s.id, m.get(s.id) ?? (s.isClosed ? 'done' : s.id === firstOpen && !explicitTodo ? 'todo' : 'doing'))
+  }
+  return out
+}
+
+const AXIS_KEY = 'redmine-board:axis'
+
+export function loadAxis(): 'stage' | 'assignee' {
+  try {
+    return localStorage.getItem(AXIS_KEY) === 'assignee' ? 'assignee' : 'stage'
+  } catch {
+    return 'stage'
+  }
+}
+
+export function saveAxis(a: 'stage' | 'assignee') {
+  try {
+    localStorage.setItem(AXIS_KEY, a)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Whole days from today to an ISO date (negative = past). */
+export function daysUntil(isoDate: string): number {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  const now = new Date()
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((Date.UTC(y, m - 1, d) - today) / 86_400_000)
+}
+
+export function isOverdue(it: { dueDate: string | null; status: { isClosed: boolean } }): boolean {
+  return !!it.dueDate && !it.status.isClosed && daysUntil(it.dueDate) < 0
+}

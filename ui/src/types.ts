@@ -74,9 +74,39 @@ export interface SearchResult extends ResultMeta {
   direct?: number
 }
 
+export type BoardAxis = 'stage' | 'assignee'
+export type StageKey = 'todo' | 'doing' | 'review' | 'done'
+
+export interface BoardColumn {
+  /** stage key, 'user:<id>', 'none' or 'status:<id>' */
+  key: string
+  issues: IssueSummary[]
+  total: number
+  /** stage / status axis */
+  statusIds?: number[]
+  status?: StatusRef
+  /** assignee axis (null = unassigned) */
+  assigneeId?: number | null
+  name?: string | null
+}
+
 export interface BoardResult extends ResultMeta {
-  columns: { status: StatusRef; issues: IssueSummary[]; total: number }[]
+  axis?: 'status' | BoardAxis
+  columns: BoardColumn[]
   perColumn: number
+  /** assignee axis: grouped from the first N issues only */
+  truncated?: boolean
+  totalIssues?: number
+}
+
+export interface VersionProgress {
+  id: number
+  name: string
+  status: string
+  dueDate: string | null
+  projectId: number | null
+  total: number
+  closed: number
 }
 
 export interface FieldMeta {
@@ -100,7 +130,7 @@ export interface Meta {
 
 export interface ProjectOptions {
   members: { id: number; name: string; group: boolean }[]
-  versions: { id: number; name: string; status: string }[]
+  versions: { id: number; name: string; status: string; dueDate?: string | null }[]
   categories: Ref[]
   customFields: Ref[]
 }
@@ -117,4 +147,6 @@ export interface SettingsView {
   apiKeySet: boolean
   insecure: boolean
   kanbanStatusIds: number[]
+  /** status id -> stage key */
+  kanbanStages?: Record<string, StageKey>
 }

@@ -385,8 +385,12 @@ def _date_f_op(val):
     return "=", [val]
 
 
-def build_params(parsed, meta):
-    """Compile parsed filters into a Plan. Text terms are NOT included."""
+def build_params(parsed, meta, force_f=False):
+    """Compile parsed filters into a Plan. Text terms are NOT included.
+
+    ``force_f`` puts every filter into f[] even when direct params would do,
+    for callers that add a multi-value filter afterwards (board stages).
+    """
     plan = Plan(errors=list(parsed.errors))
     fonly = []    # entries needing f[]
     either = []   # entries expressible both ways: (fname, op, values, direct_value)
@@ -481,7 +485,7 @@ def build_params(parsed, meta):
             direct = {fname: "!*"}  # direct !* works too
         add(fname, f.op, ids, direct, f_only=direct is None)
 
-    if fonly:
+    if fonly or force_f:
         plan.mode = "f"
     else:
         plan.mode = "direct"

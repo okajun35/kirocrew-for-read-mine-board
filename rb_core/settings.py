@@ -8,7 +8,9 @@ import urllib.parse
 
 from .util import ToolError, atomic_write_json, data_dir, read_json
 
-KANBAN_KEYS = ("kanbanStatusIds",)
+KANBAN_KEYS = ("kanbanStatusIds", "kanbanStages")
+# fixed board stages; statuses are mapped onto these (status id -> stage key)
+STAGE_KEYS = ("todo", "doing", "review", "done")
 
 
 def _path():
@@ -45,6 +47,7 @@ def view():
         "apiKeySet": bool(s.get("apiKey")),
         "insecure": base.startswith("http://"),
         "kanbanStatusIds": s.get("kanbanStatusIds") or [],
+        "kanbanStages": s.get("kanbanStages") or {},
     }
 
 
@@ -59,7 +62,7 @@ def load_credentials():
     return base, key
 
 
-def save(base_url=None, api_key=None, kanban_status_ids=None):
+def save(base_url=None, api_key=None, kanban_status_ids=None, kanban_stages=None):
     s = _load()
     if base_url is not None:
         new_base = normalize_base_url(base_url)
@@ -81,6 +84,12 @@ def save(base_url=None, api_key=None, kanban_status_ids=None):
         ):
             raise ToolError("kanbanStatusIds must be an array of integers")
         s["kanbanStatusIds"] = kanban_status_ids[:30]
+    if kanban_stages is not None:
+        if not isinstance(kanban_stages, dict) or len(kanban_stages) > 200 or not all(
+            isinstance(k, str) and k.isdigit() and v in STAGE_KEYS for k, v in kanban_stages.items()
+        ):
+            raise ToolError("kanbanStages must map status ids to one of " + ", ".join(STAGE_KEYS))
+        s["kanbanStages"] = dict(kanban_stages)
     atomic_write_json(_path(), s, mode=0o600)
     return view()
 

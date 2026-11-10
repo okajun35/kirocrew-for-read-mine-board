@@ -183,5 +183,45 @@ class StatusWriteTests(Base):
         self.assertEqual((resp.status, body["code"]), (409, "transition_not_allowed"))
 
 
+class KanbanHandlerTests(Base):
+    async def test_board_axis(self):
+        self.configure()
+        resp, body = await call(handlers.board, get_req("/board?query=&axis=stage"), self.ctx)
+        self.assertEqual(resp.status, 200, resp.text)
+        self.assertEqual([c["key"] for c in body["columns"]], ["todo", "doing", "review", "done"])
+        resp, body = await call(handlers.board, get_req("/board?query=status:*&axis=assignee"), self.ctx)
+        self.assertEqual(body["columns"][-1]["key"], "none")
+        resp, body = await call(handlers.board, get_req("/board?query=&axis=nope"), self.ctx)
+        self.assertEqual(resp.status, 400)
+
+    async def test_version_progress(self):
+        self.configure()
+        resp, body = await call(handlers.version, get_req("/version?id=1"), self.ctx)
+        self.assertEqual(resp.status, 200, resp.text)
+        self.assertEqual((body["name"], body["total"]), ("v1.0", 15))
+        resp, body = await call(handlers.version, get_req("/version"), self.ctx)
+        self.assertEqual(resp.status, 400)
+
+    async def test_assignee_update_and_clear(self):
+        self.configure()
+        resp, body = await call(handlers.update_assignee, post_req("/issue/assignee", {"id": 1, "assigneeId": 8}), self.ctx)
+        self.assertEqual(resp.status, 200, resp.text)
+        self.assertEqual(body["issue"]["assignedTo"]["id"], 8)
+        resp, body = await call(handlers.update_assignee, post_req("/issue/assignee", {"id": 1, "assigneeId": None}), self.ctx)
+        self.assertEqual(resp.status, 200, resp.text)
+        self.assertIsNone(body["issue"]["assignedTo"])
+
+    async def test_assignee_update_refuses_app_tokens(self):
+        self.configure()
+        resp, body = await call(
+            handlers.update_assignee, post_req("/issue/assignee", {"id": 1, "assigneeId": 8}, app="other"), self.ctx)
+        self.assertEqual((resp.status, body["code"]), (403, "app_token_forbidden"))
+
+    async def test_settings_save_stages(self):
+        resp, body = await call(handlers.save_settings, post_req("/settings", {"kanbanStages": {"2": "review"}}), self.ctx)
+        self.assertEqual(resp.status, 200, resp.text)
+        self.assertEqual(body["kanbanStages"], {"2": "review"})
+
+
 if __name__ == "__main__":
     unittest.main()

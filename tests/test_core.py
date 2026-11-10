@@ -131,6 +131,146 @@ class SearchTests(CoreCase):
         self.assertEqual([c["status"]["id"] for c in b["columns"]], [5, 1])
 
 
+STAGE_STATUSES = [
+    {"id": 1, "name": "New", "isClosed": False},
+    {"id": 2, "name": "In Progress", "isClosed": False},
+    {"id": 3, "name": "Review", "isClosed": False},
+    {"id": 5, "name": "Closed", "isClosed": True},
+]
+
+
+class StageMappingTests(unittest.TestCase):
+    """Statuses grouped into a few fixed stages (no Redmine needed)."""
+
+    def ids(self, stages):
+        return [s["statusIds"] for s in stages]
+
+    def test_default_stages(self):
+        st = issues.stage_columns(STAGE_STATUSES, {})
+        self.assertEqual([s["key"] for s in st], ["todo", "doing", "review", "done"])
+        self.assertEqual(self.ids(st), [[1], [2, 3], [], [5]])
+
+    def test_mapping_moves_a_status(self):
+        self.assertEqual(self.ids(issues.stage_columns(STAGE_STATUSES, {"3": "review"})), [[1], [2], [3], [5]])
+
+    def test_explicit_todo_turns_first_open_into_doing(self):
+        self.assertEqual(self.ids(issues.stage_columns(STAGE_STATUSES, {"2": "todo"})), [[2], [1, 3], [], [5]])
+
+    def test_unknown_status_ids_in_mapping_are_ignored(self):
+        self.assertEqual(self.ids(issues.stage_columns(STAGE_STATUSES, {"99": "review"})), [[1], [2, 3], [], [5]])
+
+
+class StageSettingsTests(CoreCase):
+    def test_round_trip(self):
+        v = settings.save(kanban_stages={"3": "review", "1": "todo"})
+        self.assertEqual(v["kanbanStages"], {"3": "review", "1": "todo"})
+        self.assertEqual(settings.view()["kanbanStages"], {"3": "review", "1": "todo"})
+
+    def test_rejects_bad_stage_or_status(self):
+        with self.assertRaises(ToolError):
+            settings.save(kanban_stages={"3": "later"})
+        with self.assertRaises(ToolError):
+            settings.save(kanban_stages={"x": "todo"})
+        with self.assertRaises(ToolError):
+            settings.save(kanban_stages=["todo"])
+
+
+class BoardAxisTests(CoreCase):
+    def expected(self, pred):
+        return [i for i in self.fake.issues.values() if pred(i)]
+
+    def board_requests(self):
+        return [r for r in self.fake.requests if r[1] == "/issues.json"]
+
+    def test_stage_axis_columns_and_totals(self):
+        b = issues.board_expr(self.client, "", axis="stage")
+        self.assertEqual([c["key"] for c in b["columns"]], ["todo", "doing", "review", "done"])
+        self.assertEqual([c["statusIds"] for c in b["columns"]], [[1], [2], [], [5]])
+        self.assertEqual([c["total"] for c in b["columns"]], [10, 10, 0, 10])
+
+    def test_stage_axis_respects_settings(self):
+        settings.save(kanban_stages={"2": "review"})
+        b = issues.board_expr(self.client, "", axis="stage")
+        self.assertEqual([c["total"] for c in b["columns"]], [10, 0, 10, 10])
+
+    def test_stage_axis_in_f_mode_keeps_status_inside_f(self):
+        # "-assignee:me" needs f[]; the stage's statuses must go into f[] too,
+        # because Redmine ignores direct params once f[] is present (V-15)
+        b = issues.board_expr(self.client, "-assignee:me", axis="stage")
+        unassigned = self.expected(lambda i: not i["assigned_to"])
+        want = [len([i for i in unassigned if i["status"]["id"] == sid]) for sid in (1, 2)]
+        self.assertEqual([c["total"] for c in b["columns"]][:2], want)
+        for _m, _p, one, _h, _b in self.board_requests():
+            self.assertFalse("f[]" in one and "status_id" in one, one)
+
+    def test_status_axis_is_still_the_default(self):
+        b = issues.board_expr(self.client, "")
+        self.assertEqual([c["status"]["id"] for c in b["columns"]], [1, 2, 5])
+
+    def test_assignee_axis_groups_me_first_and_unassigned_last(self):
+        b = issues.board_expr(self.client, "status:*", axis="assignee")
+        keys = [c["key"] for c in b["columns"]]
+        self.assertEqual(keys[0], "user:7")
+        self.assertEqual(keys[-1], "none")
+        self.assertEqual(b["columns"][0]["assigneeId"], 7)
+        self.assertIsNone(b["columns"][-1]["assigneeId"])
+        self.assertEqual(b["columns"][0]["total"], 7)
+        self.assertEqual(b["columns"][-1]["total"], 23)
+        self.assertFalse(b["truncated"])
+
+    def test_assignee_axis_caps_issues_per_column(self):
+        b = issues.board_expr(self.client, "status:*", axis="assignee", per_column=5)
+        none = b["columns"][-1]
+        self.assertEqual(len(none["issues"]), 5)
+        self.assertEqual(none["total"], 23)
+
+    def test_rejects_unknown_axis(self):
+        with self.assertRaises(ToolError):
+            issues.board_expr(self.client, "", axis="priority")
+
+
+class VersionTests(CoreCase):
+    def test_list_versions_has_due_date(self):
+        v = issues.list_versions(self.client, "alpha")
+        self.assertEqual(v[0]["dueDate"], "2026-12-20")
+        self.assertIsNone(v[1]["dueDate"])
+
+    def test_progress_counts_all_and_closed(self):
+        p = issues.version_progress(self.client, 1)
+        evens = [i for i in self.fake.issues.values() if i["id"] % 2 == 0]
+        self.assertEqual(p["total"], len(evens))
+        self.assertEqual(p["closed"], len([i for i in evens if i["status"]["is_closed"]]))
+        self.assertEqual((p["id"], p["name"], p["dueDate"], p["status"]), (1, "v1.0", "2026-12-20", "open"))
+
+    def test_progress_unknown_version(self):
+        with self.assertRaises(ToolError):
+            issues.version_progress(self.client, 99)
+
+
+class AssigneeUpdateTests(CoreCase):
+    def test_assign(self):
+        r = issues.update_assignee(self.client, 1, 8)
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["issue"]["assignedTo"]["id"], 8)
+        self.assertEqual(self.fake.issues[1]["assigned_to"]["id"], 8)
+
+    def test_unassign(self):
+        r = issues.update_assignee(self.client, 4, None)
+        self.assertIsNone(r["issue"]["assignedTo"])
+        self.assertIsNone(self.fake.issues[4]["assigned_to"])
+
+    def test_accepted_but_not_applied_is_an_error(self):
+        self.fake.locked_assignee.add(1)
+        with self.assertRaises(ToolError) as cm:
+            issues.update_assignee(self.client, 1, 8)
+        self.assertEqual(cm.exception.code, "assignee_not_applied")
+
+    def test_not_assignable_user(self):
+        with self.assertRaises(ToolError) as cm:
+            issues.update_assignee(self.client, 1, 99)
+        self.assertEqual(cm.exception.code, "redmine_invalid")
+
+
 class QueryParseTests(unittest.TestCase):
     """Parser unit tests: no Redmine needed."""
 
